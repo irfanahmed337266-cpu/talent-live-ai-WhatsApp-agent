@@ -285,29 +285,42 @@ interview logic. It's a good candidate for cleanup if anyone has time.
 
 ## 7. Deployment
 
-**Current setup: only the dashboard is deployed to Render.** The bot
-itself runs locally via long-polling, started hidden at Windows logon
-(`scripts/launch_telegram_bot_hidden.vbs` in the Startup folder +
-`scripts/run_telegram_polling_forever.ps1` as a self-restarting
-supervisor — see `scripts/setup_telegram_task.ps1` for the Scheduled
-Task variant, though Task Scheduler creation was blocked by this
-machine's security policy when tried; the Startup-folder `.vbs` is what's
-actually in use). This is a deliberate choice: polling needs no public
-URL at all, so as long as the laptop is on and logged in, there's nothing
-to host for the bot. The one real limit: the bot goes offline whenever
-that machine is off or logged out.
+**Current setup: everything runs locally — no external hosting at all.**
+Both the bot and the dashboard are plain Windows background processes,
+started hidden at logon, no account/signup with any host required:
 
-### `talent-live-dashboard` (Web Service, `render.yaml`)
-- **Start command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- **Plan: free** — chosen deliberately, since this is an internal,
-  on-demand tool, not something needing to be always-warm. Tradeoff:
-  spins down after ~15 min idle, ~30-50s cold start on the next visit.
-  Switch to `starter` in the Render dashboard any time if that's annoying.
-- Public `*.onrender.com` URL. Serves `/health` and `/owner/dashboard`.
-  (Also exposes `/telegram/webhook`, unused in this deployment — harmless.)
-- Env vars: `DASHBOARD_TOKEN`, `TELEGRAM_BOT_TOKEN` (needed to resolve
-  material download links via `getFile` — see §9), `SUPABASE_URL`,
-  `SUPABASE_KEY`.
+| | Bot | Dashboard |
+|---|---|---|
+| Supervisor | `scripts/run_telegram_polling_forever.ps1` | `scripts/run_dashboard_forever.ps1` |
+| Startup entry | `TalentLiveTelegramBot.vbs` | `TalentLiveDashboard.vbs` |
+| Log | `telegram_polling.log` | `dashboard.log` |
+| Command | `python -m app.telegram_polling` | `uvicorn app.main:app --host 0.0.0.0 --port 8000` |
+
+Both `.vbs` files live in `shell:startup`
+(`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`) and launch
+their supervisor with no visible window; each supervisor is a `while
+($true)` loop that restarts its process if it ever exits/crashes.
+(`scripts/setup_telegram_task.ps1` — a Scheduled Task variant — exists
+but Task Scheduler creation was blocked by this machine's security
+policy; the Startup-folder `.vbs` approach is what's actually in use.)
+
+**The real tradeoff**: both go offline whenever this machine is off or
+logged out — there's no redundancy, no uptime guarantee, nothing running
+if the laptop is closed. That's an accepted tradeoff for an internal tool
+with one owner, not an oversight — the alternative (Render, or any other
+host) means an account/signup, which was explicitly ruled out here.
+
+**Accessing the dashboard**: `http://localhost:8000/owner/dashboard?token=<DASHBOARD_TOKEN>`
+from the same machine. Since uvicorn binds `0.0.0.0` (not just
+`127.0.0.1`), it's also reachable from other devices on the same local
+network via this machine's LAN IP (e.g.
+`http://192.168.1.23:8000/owner/dashboard?token=...`) — Windows Firewall
+may need an inbound rule allowing port 8000 for that to work. Still not
+reachable from outside that network without additional setup (a router
+port-forward, Tailscale, etc.) — deliberately not done here, since "who
+else needs to reach this and from where" changes the right answer and
+should be a deliberate call, not a default.
+
 - **Security note**: the dashboard's only protection is `DASHBOARD_TOKEN`,
   checked via either an `Authorization: Bearer <token>` header or a
   `?token=<token>` query param (added for plain-browser access). Anyone
@@ -315,8 +328,14 @@ that machine is off or logged out.
   phone number. Use a long random value, and treat the full dashboard URL
   (with token) as a secret — don't share it in plaintext channels.
 
+### `render.yaml` — kept, currently unused
+A Render Blueprint for the dashboard (free Web Service tier) still lives
+in the repo in case the local-only approach ever needs to change (e.g.
+wanting the dashboard reachable when the laptop is off) — see its
+comments for the deploy steps. Nothing currently deploys from it.
+
 ### If the bot ever needs to move off the laptop
-Add a second service to `render.yaml`:
+Add a service like this to `render.yaml`:
 ```yaml
   - type: worker
     name: talent-live-telegram-bot

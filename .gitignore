@@ -5,4 +5,5 @@ __pycache__/
 .pytest_cache/
 .vscode/
 telegram_polling.log*
+dashboard.log*
 supabase/.temp/
