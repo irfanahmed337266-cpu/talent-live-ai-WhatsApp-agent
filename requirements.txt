@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+supabase
+langgraph
+typing_extensions
+google-genai

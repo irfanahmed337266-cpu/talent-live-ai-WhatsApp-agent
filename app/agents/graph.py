@@ -52,6 +52,10 @@ USE_GEMINI_EXTRACTION = (
     == "true"
 )
 
+# Shown to candidates in the closing message. Set in .env so it can be
+# updated without a code change.
+OWNER_CONTACT_PHONE = os.getenv("OWNER_CONTACT_PHONE", "")
+
 
 gemini_client = None
 
@@ -221,27 +225,49 @@ QUESTION_BANK = {
         ],
     },
 
+    # NOTE: internally still called "family" (category key + evidence field
+    # name), but the questions were reworded away from personal-family
+    # topics (father's job, siblings, living arrangement) to professional
+    # availability/work-stability topics. Keep this list identical (word
+    # for word) to the "family" block in app/agents/interview.py — both
+    # files' category question lists must match in length/content, since
+    # process_answer() (interview.py) advances categories based on ITS
+    # copy while this file generates the actual question text from ITS
+    # copy. See CATEGORY_REQUIRED_FIELDS below for the same legacy-naming
+    # note on the underlying field names.
     "family": {
         "english": [
-            "Tell me a bit about your family — what does your father do?",
-            "Do you have brothers? What do they do?",
-            "Do you all live together, or on your own?",
-            "Is where you live your own place, or rented?",
+            "What does your weekly availability look like — roughly how "
+            "many hours could you commit to this kind of work?",
+            "Do you have any other ongoing commitments, like studies or "
+            "another job, that we should factor into your availability?",
+            "Is your current setup — where you live and work from — "
+            "something you expect to stay stable for the next several "
+            "months?",
+            "Do you have a reliable internet connection and a quiet "
+            "space to work from consistently?",
         ],
         "urdu": [
-            "اپنی family کے بارے میں تھوڑا بتائیں — آپ کے والد کیا کرتے ہیں؟",
-            "کیا آپ کے بھائی ہیں؟ وہ کیا کرتے ہیں؟",
-            "کیا آپ سب ایک ساتھ رہتے ہیں یا آپ الگ رہتے ہیں؟",
-            "جہاں آپ رہتے ہیں وہ اپنا گھر ہے یا کرائے کا؟",
+            "آپ کی ہفتہ وار availability کیسی ہے — تقریباً کتنے گھنٹے آپ "
+            "اس قسم کے کام کے لیے دے سکتے ہیں؟",
+            "کیا آپ کے کوئی اور ongoing commitments ہیں، جیسے پڑھائی یا "
+            "کوئی اور job، جو ہمیں آپ کی availability سوچتے وقت ذہن میں "
+            "رکھنی چاہیے؟",
+            "کیا آپ کا موجودہ setup — جہاں آپ رہتے اور کام کرتے ہیں — "
+            "اگلے چند مہینوں تک stable رہے گا؟",
+            "کیا آپ کے پاس reliable انٹرنیٹ کنکشن اور ایک پرسکون جگہ ہے "
+            "جہاں آپ مستقل طور پر کام کر سکیں؟",
         ],
         "roman_urdu": [
-            (
-                "Apni family ke bare mein thora batayein — aapke father "
-                "kya karte hain?"
-            ),
-            "Kya aapke brothers hain? Wo kya karte hain?",
-            "Kya aap sab ek sath rehte hain ya aap alag rehte hain?",
-            "Jahan aap rehte hain wo apna ghar hai ya rent par hai?",
+            "Aap ki weekly availability kaisi hai — takhmeenan kitne "
+            "hours aap is tarah ke kaam ke liye de sakte hain?",
+            "Kya aap ke koi aur ongoing commitments hain, jaise parhai "
+            "ya koi aur job, jo hume aapki availability sochte waqt "
+            "dhyan mein rakhni chahiye?",
+            "Kya aapka current setup — jahan aap rehte aur kaam karte "
+            "hain — agle kuch mahinon tak stable rahega?",
+            "Kya aap ke paas reliable internet connection aur ek quiet "
+            "jagah hai jahan aap consistently kaam kar sakein?",
         ],
     },
 
@@ -284,6 +310,10 @@ CATEGORY_REQUIRED_FIELDS = {
     "education": [
         "education",
     ],
+    # These field names are legacy from the original personal-family
+    # questions and are effectively inert now (nothing extracts free-text
+    # answers into these specific candidate dict keys) - the actual
+    # answers are captured in interview["family_evidence"] regardless.
     "family": [
         "father_occupation",
         "brothers",
@@ -1759,6 +1789,7 @@ def get_interview_status(
 CANDIDATE_FIELDS = {
     "name",
     "phone_number",
+    "contact_phone",
     "age",
     "location",
     "experience",
@@ -1785,6 +1816,7 @@ BASIC_REQUIRED_FIELDS = [
     "age",
     "location",
     "experience",
+    "contact_phone",
 ]
 
 # ============================================================================
@@ -2065,6 +2097,56 @@ def _extract_experience(
 
 
 # ============================================================================
+# LOCAL PHONE NUMBER EXTRACTION
+# ============================================================================
+
+def _extract_phone(
+    message: str,
+) -> str | None:
+
+    if not message:
+        return None
+
+    text = str(message).strip()
+
+    phrased_patterns = [
+        r"\b(?:my\s+(?:phone\s+)?number\s+is|contact\s+me\s+(?:at|on)|"
+        r"call\s+me\s+(?:at|on)|reach\s+me\s+(?:at|on)|whatsapp\s*(?:me)?"
+        r"\s*(?:at|on)?)\s*[:\-]?\s*([+\d][\d\s\-()]{6,18}\d)",
+    ]
+
+    for pattern in phrased_patterns:
+
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE,
+        )
+
+        if match:
+
+            digits = re.sub(r"[^\d]", "", match.group(1))
+
+            if 7 <= len(digits) <= 15:
+                return re.sub(r"[^\d+]", "", match.group(1))
+
+    # Bare phone number anywhere in the message.
+    match = re.search(
+        r"(\+?\d[\d\s\-]{7,17}\d)",
+        text,
+    )
+
+    if match:
+
+        digits = re.sub(r"[^\d]", "", match.group(1))
+
+        if 9 <= len(digits) <= 15:
+            return re.sub(r"[^\d+]", "", match.group(1))
+
+    return None
+
+
+# ============================================================================
 # LOCAL CANDIDATE EXTRACTION
 # ============================================================================
 
@@ -2336,6 +2418,7 @@ def generate_next_basic_question(
             "age": "How old are you?",
             "location": "Where do you live?",
             "experience": "How much work experience do you have, and what kind of work have you done?",
+            "contact_phone": "What's the best phone number to reach you on?",
         }
 
     elif language == "roman_urdu":
@@ -2345,6 +2428,7 @@ def generate_next_basic_question(
             "age": "Aap ki age kya hai?",
             "location": "Aap kahan rehte hain?",
             "experience": "Aap ka kitna work experience hai aur kis type ka kaam kiya hai?",
+            "contact_phone": "Aap se rabta karne ke liye best phone number kya hai?",
         }
 
     else:
@@ -2354,6 +2438,7 @@ def generate_next_basic_question(
             "age": "آپ کی عمر کتنی ہے؟",
             "location": "آپ کہاں رہتے ہیں؟",
             "experience": "آپ کا کتنا کام کا تجربہ ہے اور آپ نے کس قسم کا کام کیا ہے؟",
+            "contact_phone": "آپ سے رابطہ کرنے کے لیے بہترین فون نمبر کیا ہے؟",
         }
 
     return questions.get(
@@ -2681,6 +2766,56 @@ def _materials_invitation(
         "اس کے علاوہ اپنے بارے میں، اپنے کام کے بارے "
         "میں، یا کسی بھی ایسی چیز کے بارے میں freely "
         "بتا سکتے ہیں جو آپ کے خیال میں معلوم ہونی چاہیے۔"
+    )
+
+
+# ============================================================================
+# OPENING MESSAGE
+# ============================================================================
+
+def _opening_message(
+    language: str,
+) -> str:
+    """
+    Sent exactly once, before the first Stage 1 question, so the
+    candidate knows this is a multi-step conversation before they
+    answer anything.
+    """
+
+    if language == "roman_urdu":
+
+        return (
+            "Assalam o Alaikum! Rabta karne ka shukriya.\n\n"
+            "Shuru karne se pehle, thora bata dun ke kya hoga: yeh ek "
+            "chhoti si guftagu hogi jisme aap ke background, skills, "
+            "aur experience ke bare mein baat hogi. Main ek waqt mein "
+            "sirf ek sawal poochunga — aap bas naturally jawab dete "
+            "jayein, hum aakhir tak chalte rahenge. Aam tor par is mein "
+            "taqreeban 15-20 messages lagte hain.\n\n"
+            "Chaliye basic maloomat se shuru karte hain."
+        )
+
+    if language == "urdu":
+
+        return (
+            "السلام علیکم! رابطہ کرنے کا شکریہ۔\n\n"
+            "شروع کرنے سے پہلے تھوڑا بتا دوں کہ کیا ہوگا: یہ ایک مختصر "
+            "گفتگو ہوگی جس میں آپ کے background، skills، اور experience "
+            "کے بارے میں بات ہوگی۔ میں ایک وقت میں صرف ایک سوال "
+            "پوچھوں گا — آپ بس نیچرلی جواب دیتے جائیں، ہم آخر تک چلتے "
+            "رہیں گے۔ عام طور پر اس میں تقریباً 15-20 messages لگتے ہیں۔"
+            "\n\n"
+            "چلیے بنیادی معلومات سے شروع کرتے ہیں۔"
+        )
+
+    return (
+        "Hi! Thanks for reaching out.\n\n"
+        "Before we get into it, here's what to expect: this will be a "
+        "short conversation covering your background, skills, and "
+        "experience. I'll ask one question at a time — just answer "
+        "naturally and we'll keep going until we're done. It usually "
+        "takes about 15-20 messages total.\n\n"
+        "Let's start with the basics."
     )
 
 
@@ -3445,6 +3580,7 @@ def interview_stage_node(
 
                 candidate_data = {
                     "name": candidate.get("name"),
+                    "contact_phone": candidate.get("contact_phone"),
                     "language": candidate.get(
                         "language",
                         state.get(
@@ -3782,7 +3918,13 @@ def model_explanation_stage_node(
             "Is ke ilawa bhi doosre types ka work ho sakta hai, "
             "jo aapki skills ke mutabiq fit ho.\n\n"
             "Abhi maqsad sirf aap ko properly samajhna hai. "
-            "Yeh process ka pehla step hai."
+            "Yeh process ka pehla step hai.\n\n"
+            "Ab aage yeh hoga: main hamari poori conversation ka review "
+            "karunga taake dekh sakoon ke aapka fit us kaam ke sath kaisa "
+            "hai jo mere paas hai. Agar fit hota hai, to main aap ko "
+            "yahin Telegram par directly message karunga. Agar foran "
+            "reply na aaye, iska matlab yeh nahi ke na hai — bas timing "
+            "sahi nahi hai abhi."
         )
 
     elif language == "urdu":
@@ -3804,7 +3946,12 @@ def model_explanation_stage_node(
             "اس کے علاوہ بھی دوسرے types کا work ہو سکتا ہے، "
             "جو آپ کی skills کے مطابق fit ہو۔\n\n"
             "ابھی مقصد صرف آپ کو properly سمجھنا ہے۔ "
-            "یہ process کا پہلا step ہے۔"
+            "یہ process کا پہلا step ہے۔\n\n"
+            "اب یہ ہوگا: میں ہماری پوری گفتگو کا جائزہ لوں گا تاکہ دیکھ "
+            "سکوں کہ آپ کا fit اس کام کے ساتھ کیسا ہے جو میرے پاس ہے۔ "
+            "اگر fit ہوتا ہے، تو میں آپ کو یہیں Telegram پر براہ راست "
+            "message کروں گا۔ اگر فوراً reply نہ آئے، تو اس کا مطلب یہ "
+            "نہیں کہ نہیں ہے — بس ابھی timing صحیح نہیں ہے۔"
         )
 
     else:
@@ -3821,7 +3968,13 @@ def model_explanation_stage_node(
             "working with Shopify beauty brands. There may be other "
             "kinds of work too, depending on what fits.\n\n"
             "Right now I want to get to know people properly before "
-            "assigning anything, so this is just step one."
+            "assigning anything, so this is just step one.\n\n"
+            "Here's what happens next: I'll go through everything from "
+            "our conversation to see if there's a good match with the "
+            "work I have. If there is, I'll message you directly here "
+            "on Telegram to follow up. If you don't hear back right "
+            "away, that just means the timing isn't right yet — it's "
+            "not a final no."
         )
 
     state["model_explanation"] = explanation
@@ -3892,6 +4045,7 @@ def scoring_stage_node(
 
     candidate_data = {
         "name": candidate.get("name"),
+        "contact_phone": candidate.get("contact_phone"),
         "language": candidate.get(
             "language",
             state.get(
@@ -4294,23 +4448,49 @@ def response_node(
 
         if not response.strip():
 
+            contact_line = ""
+
+            if OWNER_CONTACT_PHONE:
+
+                if language == "roman_urdu":
+                    contact_line = (
+                        f" Aap humein {OWNER_CONTACT_PHONE} "
+                        "par bhi contact kar sakte hain."
+                    )
+
+                elif language == "urdu":
+                    contact_line = (
+                        f" آپ ہم سے {OWNER_CONTACT_PHONE} پر "
+                        "بھی رابطہ کر سکتے ہیں۔"
+                    )
+
+                else:
+                    contact_line = (
+                        f" You can also reach us at {OWNER_CONTACT_PHONE}."
+                    )
+
             if language == "roman_urdu":
 
                 response = (
-                    "Shukriya. Aap ka assessment complete "
-                    "ho gaya hai."
+                    "Shukriya aap ka waqt dene ke liye! "
+                    "Agar humein laga ke aap fit hain, to hum aap "
+                    "se rabta karenge!" + contact_line
                 )
 
             elif language == "urdu":
 
                 response = (
-                    "شکریہ! آپ کا assessment مکمل ہو گیا ہے۔"
+                    "آپ کا وقت دینے کا شکریہ! "
+                    "اگر ہمیں لگا کہ آپ فٹ ہیں، تو ہم آپ سے رابطہ "
+                    "کریں گے!" + contact_line
                 )
 
             else:
 
                 response = (
-                    "Thank you. Your assessment is complete."
+                    "Thank you for your time! "
+                    "If we think you're a fit, we'll contact "
+                    "you!" + contact_line
                 )
 
         state["ai_response"] = response
@@ -4335,6 +4515,22 @@ def response_node(
             candidate=candidate,
             language=language,
         )
+
+        # --------------------------------------------------------------------
+        # OPENING MESSAGE
+        #
+        # Sent exactly once, prepended to the very first Stage 1 question,
+        # so the candidate knows up front this is a multi-step conversation
+        # before answering anything.
+        # --------------------------------------------------------------------
+
+        if not state.get("greeting_sent", False):
+
+            response = (
+                _opening_message(language) + "\n\n" + response
+            )
+
+            state["greeting_sent"] = True
 
         state["next_question"] = response
 
@@ -4702,6 +4898,19 @@ def _local_extract_candidate(
                     f"{match.group(1)} years"
                 )
 
+    elif expected_field == "contact_phone":
+        phone = _extract_phone(message)
+
+        if phone:
+            extracted["contact_phone"] = phone
+        else:
+            digits = re.sub(r"[^\d]", "", message)
+
+            if 7 <= len(digits) <= 15:
+                extracted["contact_phone"] = re.sub(
+                    r"[^\d+]", "", message.strip()
+                )
+
     # ============================================================
     # NORMAL EXTRACTION
     # ============================================================
@@ -4725,6 +4934,11 @@ def _local_extract_candidate(
 
     if experience and "experience" not in extracted:
         extracted["experience"] = experience
+
+    phone = _extract_phone(message)
+
+    if phone and "contact_phone" not in extracted:
+        extracted["contact_phone"] = phone
 
     lower = message.lower()
 

@@ -34,7 +34,7 @@ def upsert_candidate(
 ) -> Dict[str, Any]:
 
     data = {
-        "whatsapp_number": phone_number,
+        "telegram_chat_id": phone_number,
         **candidate,
     }
 
@@ -43,7 +43,7 @@ def upsert_candidate(
         .table("candidates")
         .upsert(
             data,
-            on_conflict="whatsapp_number",
+            on_conflict="telegram_chat_id",
         )
         .execute()
     )
@@ -85,7 +85,7 @@ def get_candidate_by_phone(
         supabase
         .table("candidates")
         .select("*")
-        .eq("whatsapp_number", phone_number)
+        .eq("telegram_chat_id", phone_number)
         .limit(1)
         .execute()
     )
@@ -142,6 +142,68 @@ def save_candidate_material(
         )
 
     return response.data[0]
+
+
+def get_agent_sessions_for_candidates(
+    candidate_ids: list[str],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Batch-fetch agent_sessions.state_json for a set of candidate ids,
+    keyed by candidate_id. This is where the actual candidate profile
+    lives (skills, availability answers, etc.) - the candidates table
+    itself only stores a handful of summary columns.
+    """
+
+    if not candidate_ids:
+        return {}
+
+    response = (
+        supabase
+        .table("agent_sessions")
+        .select("candidate_id, state_json")
+        .in_("candidate_id", candidate_ids)
+        .execute()
+    )
+
+    result: Dict[str, Dict[str, Any]] = {}
+
+    for row in response.data or []:
+        candidate_id = row.get("candidate_id")
+        state_json = row.get("state_json")
+
+        if candidate_id and isinstance(state_json, dict):
+            result[candidate_id] = state_json
+
+    return result
+
+
+def get_materials_for_candidates(
+    candidate_ids: list[str],
+) -> Dict[str, list[Dict[str, Any]]]:
+    """
+    Batch-fetch materials for a set of candidate ids, grouped by
+    candidate_id. Used by the dashboard to show submitted/not-submitted
+    per row without one query per candidate.
+    """
+
+    if not candidate_ids:
+        return {}
+
+    response = (
+        supabase
+        .table("candidate_materials")
+        .select("*")
+        .in_("candidate_id", candidate_ids)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    grouped: Dict[str, list[Dict[str, Any]]] = {}
+
+    for row in response.data or []:
+        grouped.setdefault(row["candidate_id"], []).append(row)
+
+    return grouped
 
 
 # ============================================================================
@@ -222,7 +284,7 @@ def save_interview_message(
     message_text: str,
     message_type: str = "text",
     stage: int = 0,
-    whatsapp_message_id: Optional[str] = None,
+    telegram_message_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
 
@@ -232,7 +294,7 @@ def save_interview_message(
         "message_text": message_text,
         "message_type": message_type,
         "stage": stage,
-        "whatsapp_message_id": whatsapp_message_id,
+        "telegram_message_id": telegram_message_id,
         "metadata": metadata or {},
     }
 
@@ -317,3 +379,126 @@ def save_interview_score(
         )
 
     return response.data[0]
+
+
+# ============================================================================
+# AGENT SESSION (TELEGRAM STATE PERSISTENCE)
+# ============================================================================
+#
+# run_agent() in app/agents/graph.py expects the full AgentState from the
+# previous turn. Telegram webhook calls are stateless HTTP requests, so the
+# complete state has to be persisted between messages. agent_sessions stores
+# that state keyed by Telegram chat ID, plus the last processed Telegram message
+# id for idempotency.
+# ============================================================================
+
+def get_agent_session(
+    phone_number: str,
+) -> Optional[Dict[str, Any]]:
+
+    response = (
+        supabase
+        .table("agent_sessions")
+        .select("*")
+        .eq("telegram_chat_id", phone_number)
+        .limit(1)
+        .execute()
+    )
+
+    if not response.data:
+        return None
+
+    return response.data[0]
+
+
+def save_agent_session(
+    phone_number: str,
+    state: Dict[str, Any],
+    message_id: Optional[str] = None,
+) -> Dict[str, Any]:
+
+    data: Dict[str, Any] = {
+        "telegram_chat_id": phone_number,
+        "candidate_id": state.get("candidate_id"),
+        "interview_id": state.get("interview_id"),
+        "state_json": state,
+    }
+
+    if message_id:
+        data["last_telegram_message_id"] = message_id
+
+    response = (
+        supabase
+        .table("agent_sessions")
+        .upsert(
+            data,
+            on_conflict="telegram_chat_id",
+        )
+        .execute()
+    )
+
+    if not response.data:
+        raise RuntimeError(
+            "Supabase did not return agent session data."
+        )
+
+    return response.data[0]
+
+
+def has_processed_message(
+    message_id: str,
+) -> bool:
+
+    if not message_id:
+        return False
+
+    response = (
+        supabase
+        .table("agent_sessions")
+        .select("last_telegram_message_id")
+        .eq("last_telegram_message_id", message_id)
+        .limit(1)
+        .execute()
+    )
+
+    return bool(response.data)
+
+
+# ============================================================================
+# OWNER DASHBOARD
+# ============================================================================
+
+def get_passed_candidates() -> list[Dict[str, Any]]:
+    """Return candidates in the strong (80+) screening band."""
+
+    candidates_response = (
+        supabase
+        .table("candidates")
+        .select("*")
+        .eq("status", "completed")
+        .execute()
+    )
+
+    scores_response = (
+        supabase
+        .table("interview_scores")
+        .select("*")
+        .gte("total_score", 80)
+        .order("total_score", desc=True)
+        .execute()
+    )
+
+    candidates_by_id = {
+        candidate["id"]: candidate
+        for candidate in (candidates_response.data or [])
+        if candidate.get("id")
+    }
+
+    passed: list[Dict[str, Any]] = []
+
+    for score in scores_response.data or []:
+        candidate = candidates_by_id.get(score.get("candidate_id"))
+        if candidate:
+            passed.append({**candidate, **score})
+
+    return passed

@@ -1,8 +1,8 @@
 """
-Talent Live AI Agent - State
+Talent Live AI Telegram Talent Agent - State
 
 Central LangGraph state definition for the separate
-Talent Live AI WhatsApp Agent.
+Talent Live AI Telegram Talent Agent.
 
 IMPORTANT:
 - This project is separate from the old Talent Hunt live chat.
@@ -29,6 +29,7 @@ class CandidateState(TypedDict, total=False):
 
     name: Optional[str]
     phone_number: Optional[str]
+    contact_phone: Optional[str]
     age: Optional[int]
     location: Optional[str]
 
@@ -306,6 +307,7 @@ def create_initial_candidate(
     return {
         "name": None,
         "phone_number": phone_number,
+        "contact_phone": None,
 
         "age": None,
         "location": None,
@@ -409,7 +411,7 @@ def create_initial_state(
     """
     Create a completely initialized Talent Live agent state.
 
-    This function is used when a new WhatsApp conversation starts.
+    This function is used when a new Telegram conversation starts.
     """
 
     now = datetime.utcnow().isoformat()

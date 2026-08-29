@@ -408,10 +408,24 @@ def calculate_stability_score(
     Score available stability information.
 
     Maximum: 5
+
+    BUGFIX: this used to check candidate.get("living_situation") /
+    candidate.get("housing_status"), but nothing in the extraction
+    pipeline ever populates those specific candidate dict keys from
+    free-text Stage 3 answers - they were permanently None, silently
+    denying every candidate 2 of these 5 points. The "family" category
+    answers (now professional availability/work-setup questions, see
+    interview.py) are recorded in interview["family_evidence"] instead,
+    so that's what's actually checked here.
     """
 
     candidate = state.get(
         "candidate",
+        {},
+    ) or {}
+
+    interview = state.get(
+        "interview",
         {},
     ) or {}
 
@@ -420,10 +434,17 @@ def calculate_stability_score(
     if candidate.get("current_job"):
         score += 2
 
-    if candidate.get("living_situation"):
+    family_evidence = _safe_list(
+        interview.get(
+            "family_evidence",
+            [],
+        )
+    )
+
+    if family_evidence:
         score += 1
 
-    if candidate.get("housing_status"):
+    if len(family_evidence) >= 3:
         score += 1
 
     if candidate.get("education"):
@@ -436,8 +457,166 @@ def calculate_stability_score(
 
 
 # ============================================================================
-# DEDUCTIONS
+# DEDUCTION DETECTION
 # ============================================================================
+#
+# These checks used to be entirely dead: calculate_deductions() only ever
+# read state["dishonesty_minor"] etc., but nothing anywhere set those keys,
+# so no candidate could ever be penalized. This computes them directly
+# from conversation evidence instead.
+#
+# Deliberately narrow and conservative: a false accusation of dishonesty
+# or disrespect has real consequences for a real hiring decision. Every
+# check here is a literal, auditable text match - not a tone/sentiment
+# judgment - so a flag can always be traced back to the exact phrase that
+# triggered it. dishonesty_major has no heuristic here at all (left at 0)
+# because no available signal can support that level of accusation
+# responsibly with simple keyword matching.
+# ============================================================================
+
+_SALARY_KEYWORDS = (
+    "salary", "salaries", "how much do i get paid", "how much will i earn",
+    "how much will i be paid", "pay rate", "hourly rate", "per hour pay",
+    "compensation", "stipend", "wage", "wages",
+    "tankhwa", "kitni tankhwa", "kitna paisa", "kitne paisay",
+    "kitna paisa milega", "payment kitna", "salary kitni",
+    "تنخواہ", "کتنے پیسے", "کتنا پیسہ",
+)
+
+_DISRESPECT_PHRASES = (
+    # Unambiguous insults/profanity only - not sarcasm or tone, which
+    # can't be reliably judged from text alone.
+    "you are stupid", "you're stupid", "this is stupid", "shut up",
+    "screw you", "idiot bot", "useless bot", "waste of time bot",
+)
+
+_NO_EXPERIENCE_PHRASES = (
+    "never worked", "no experience", "haven't worked", "have not worked",
+    "kabhi kaam nahi kiya", "koi tajurba nahi", "کبھی کام نہیں کیا",
+)
+
+
+def _candidate_authored_text(
+    state: Dict[str, Any],
+) -> str:
+    """
+    Everything actually typed by the candidate (not bot questions),
+    lowercased, for keyword-based deduction detection.
+    """
+
+    interview = state.get(
+        "interview",
+        {},
+    ) or {}
+
+    parts: List[str] = []
+
+    for answer in _safe_list(
+        interview.get(
+            "answers",
+            [],
+        )
+    ):
+        if isinstance(answer, dict):
+            parts.append(_text(answer.get("answer")))
+        else:
+            parts.append(_text(answer))
+
+    history = state.get(
+        "conversation_history",
+        [],
+    ) or []
+
+    for item in history:
+        if (
+            isinstance(item, dict)
+            and item.get("role") == "user"
+        ):
+            parts.append(_text(item.get("content")))
+
+    return " ".join(
+        part
+        for part in parts
+        if part
+    ).lower()
+
+
+def detect_deduction_flags(
+    state: Dict[str, Any],
+) -> Dict[str, bool]:
+    """
+    Compute deduction flags from conversation evidence that actually
+    exists in state, instead of reading externally-set flags that
+    nothing ever sets.
+    """
+
+    text = _candidate_authored_text(state)
+
+    candidate = state.get(
+        "candidate",
+        {},
+    ) or {}
+
+    interview = state.get(
+        "interview",
+        {},
+    ) or {}
+
+    flags = {
+        "dishonesty_minor": False,
+        "dishonesty_major": False,
+        "careless_disrespectful": False,
+        "early_salary_question": False,
+        "repeated_disengagement": False,
+    }
+
+    if any(
+        keyword in text
+        for keyword in _SALARY_KEYWORDS
+    ):
+        flags["early_salary_question"] = True
+
+    if any(
+        phrase in text
+        for phrase in _DISRESPECT_PHRASES
+    ):
+        flags["careless_disrespectful"] = True
+
+    # Narrow, explainable contradiction: claims no experience while a
+    # job/work history was also stated somewhere in the same conversation.
+    has_work_signal = bool(
+        candidate.get("current_job")
+        or _safe_list(
+            candidate.get(
+                "work_history",
+                [],
+            )
+        )
+    )
+
+    if (
+        has_work_signal
+        and any(
+            phrase in text
+            for phrase in _NO_EXPERIENCE_PHRASES
+        )
+    ):
+        flags["dishonesty_minor"] = True
+
+    # Vague-probed in 2+ categories = probing already happened more than
+    # once and didn't produce a substantive answer either time.
+    vague_probe_categories = _safe_list(
+        interview.get(
+            "vague_probe_categories",
+            [],
+        )
+    )
+
+    if len(vague_probe_categories) >= 2:
+        flags["repeated_disengagement"] = True
+
+    return flags
+
 
 def calculate_deductions(
     state: Dict[str, Any],
@@ -450,10 +629,9 @@ def calculate_deductions(
     Deductions should only be applied when evidence is explicit.
     """
 
-    interview = state.get(
-        "interview",
-        {},
-    ) or {}
+    flags = detect_deduction_flags(
+        state
+    )
 
     deductions = {
         "dishonesty_minor": 0,
@@ -463,39 +641,27 @@ def calculate_deductions(
         "repeated_disengagement": 0,
     }
 
-    # These flags may be added later by the interview/scoring
-    # analysis layer. For now we safely read only explicit state.
-    if state.get(
-        "dishonesty_minor"
-    ) is True:
+    if flags["dishonesty_minor"]:
         deductions["dishonesty_minor"] = (
             DISHONESTY_MINOR_DEDUCTION
         )
 
-    if state.get(
-        "dishonesty_major"
-    ) is True:
+    if flags["dishonesty_major"]:
         deductions["dishonesty_major"] = (
             DISHONESTY_MAJOR_DEDUCTION
         )
 
-    if state.get(
-        "careless_disrespectful"
-    ) is True:
+    if flags["careless_disrespectful"]:
         deductions["careless_disrespectful"] = (
             CARELESS_DISRESPECTFUL_DEDUCTION
         )
 
-    if state.get(
-        "early_salary_question"
-    ) is True:
+    if flags["early_salary_question"]:
         deductions["early_salary_question"] = (
             EARLY_SALARY_DEDUCTION
         )
 
-    if state.get(
-        "repeated_disengagement"
-    ) is True:
+    if flags["repeated_disengagement"]:
         deductions["repeated_disengagement"] = (
             REPEATED_DISENGAGEMENT_DEDUCTION
         )

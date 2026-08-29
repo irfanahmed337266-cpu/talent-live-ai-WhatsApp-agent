@@ -157,27 +157,44 @@ QUESTION_BANK = {
         ],
     },
 
+    # NOTE: internally still called "family" (category key + evidence field
+    # name), but the questions were reworded away from personal-family
+    # topics (father's job, siblings, living arrangement) to professional
+    # availability/work-stability topics. See CATEGORY_REQUIRED_FIELDS
+    # below for the same legacy-naming note on the underlying field names.
     "family": {
         "english": [
-            "Tell me a bit about your family — what does your father do?",
-            "Do you have brothers? What do they do?",
-            "Do you all live together, or on your own?",
-            "Is where you live your own place, or rented?",
+            "What does your weekly availability look like — roughly how "
+            "many hours could you commit to this kind of work?",
+            "Do you have any other ongoing commitments, like studies or "
+            "another job, that we should factor into your availability?",
+            "Is your current setup — where you live and work from — "
+            "something you expect to stay stable for the next several "
+            "months?",
+            "Do you have a reliable internet connection and a quiet "
+            "space to work from consistently?",
         ],
         "urdu": [
-            "اپنے family کے بارے میں تھوڑا بتائیں — آپ کے والد کیا کرتے ہیں؟",
-            "کیا آپ کے بھائی ہیں؟ وہ کیا کرتے ہیں؟",
-            "کیا آپ سب ایک ساتھ رہتے ہیں یا آپ الگ رہتے ہیں؟",
-            "جہاں آپ رہتے ہیں وہ اپنا گھر ہے یا کرائے کا؟",
+            "آپ کی ہفتہ وار availability کیسی ہے — تقریباً کتنے گھنٹے آپ "
+            "اس قسم کے کام کے لیے دے سکتے ہیں؟",
+            "کیا آپ کے کوئی اور ongoing commitments ہیں، جیسے پڑھائی یا "
+            "کوئی اور job، جو ہمیں آپ کی availability سوچتے وقت ذہن میں "
+            "رکھنی چاہیے؟",
+            "کیا آپ کا موجودہ setup — جہاں آپ رہتے اور کام کرتے ہیں — "
+            "اگلے چند مہینوں تک stable رہے گا؟",
+            "کیا آپ کے پاس reliable انٹرنیٹ کنکشن اور ایک پرسکون جگہ ہے "
+            "جہاں آپ مستقل طور پر کام کر سکیں؟",
         ],
         "roman_urdu": [
-            (
-                "Apni family ke bare mein thora batayein — aapke father "
-                "kya karte hain?"
-            ),
-            "Kya aapke brothers hain? Wo kya karte hain?",
-            "Kya aap sab ek sath rehte hain ya aap alag rehte hain?",
-            "Jahan aap rehte hain wo apna ghar hai ya rent par hai?",
+            "Aap ki weekly availability kaisi hai — takhmeenan kitne "
+            "hours aap is tarah ke kaam ke liye de sakte hain?",
+            "Kya aap ke koi aur ongoing commitments hain, jaise parhai "
+            "ya koi aur job, jo hume aapki availability sochte waqt "
+            "dhyan mein rakhni chahiye?",
+            "Kya aapka current setup — jahan aap rehte aur kaam karte "
+            "hain — agle kuch mahinon tak stable rahega?",
+            "Kya aap ke paas reliable internet connection aur ek quiet "
+            "jagah hai jahan aap consistently kaam kar sakein?",
         ],
     },
 
@@ -220,6 +237,10 @@ CATEGORY_REQUIRED_FIELDS = {
     "education": [
         "education",
     ],
+    # These field names are legacy from the original personal-family
+    # questions and are effectively inert now (nothing extracts free-text
+    # answers into these specific candidate dict keys) - the actual
+    # answers are captured in interview["family_evidence"] regardless.
     "family": [
         "father_occupation",
         "brothers",
