@@ -285,19 +285,24 @@ interview logic. It's a good candidate for cleanup if anyone has time.
 
 ## 7. Deployment
 
-Two Render services, defined together in `render.yaml` (a Render
-"Blueprint" — push to GitHub, then Render → New → Blueprint):
+**Current setup: only the dashboard is deployed to Render.** The bot
+itself runs locally via long-polling, started hidden at Windows logon
+(`scripts/launch_telegram_bot_hidden.vbs` in the Startup folder +
+`scripts/run_telegram_polling_forever.ps1` as a self-restarting
+supervisor — see `scripts/setup_telegram_task.ps1` for the Scheduled
+Task variant, though Task Scheduler creation was blocked by this
+machine's security policy when tried; the Startup-folder `.vbs` is what's
+actually in use). This is a deliberate choice: polling needs no public
+URL at all, so as long as the laptop is on and logged in, there's nothing
+to host for the bot. The one real limit: the bot goes offline whenever
+that machine is off or logged out.
 
-### `talent-live-telegram-bot` (Background Worker)
-- **Start command**: `python -m app.telegram_polling`
-- No open port, no domain — pure outbound polling.
-- Env vars: `TELEGRAM_BOT_TOKEN`, `SUPABASE_URL`, `SUPABASE_KEY`,
-  `GEMINI_API_KEY`, `OWNER_CONTACT_PHONE`.
-- This is the process that actually runs interviews. If it's down, the
-  bot doesn't respond, full stop.
-
-### `talent-live-dashboard` (Web Service)
+### `talent-live-dashboard` (Web Service, `render.yaml`)
 - **Start command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Plan: free** — chosen deliberately, since this is an internal,
+  on-demand tool, not something needing to be always-warm. Tradeoff:
+  spins down after ~15 min idle, ~30-50s cold start on the next visit.
+  Switch to `starter` in the Render dashboard any time if that's annoying.
 - Public `*.onrender.com` URL. Serves `/health` and `/owner/dashboard`.
   (Also exposes `/telegram/webhook`, unused in this deployment — harmless.)
 - Env vars: `DASHBOARD_TOKEN`, `TELEGRAM_BOT_TOKEN` (needed to resolve
@@ -310,16 +315,29 @@ Two Render services, defined together in `render.yaml` (a Render
   phone number. Use a long random value, and treat the full dashboard URL
   (with token) as a secret — don't share it in plaintext channels.
 
-Both plans are set to Render's `starter` tier — Render's free tier does
-not support Background Workers, so this deployment realistically has a
-small (~$7/mo/service, verify current pricing) cost.
-
-**Local dev** doesn't need any of this — see `scripts/
-run_telegram_polling_forever.ps1` + `scripts/setup_telegram_task.ps1` /
-the Startup-folder `.vbs` launcher for running the bot hidden in the
-background on a Windows machine that stays logged in. It only runs while
-that machine is on and logged in; Render is the option that doesn't
-depend on a machine being left on.
+### If the bot ever needs to move off the laptop
+Add a second service to `render.yaml`:
+```yaml
+  - type: worker
+    name: talent-live-telegram-bot
+    runtime: python
+    plan: starter   # Background Workers have no free tier
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.telegram_polling
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OWNER_CONTACT_PHONE
+        sync: false
+```
+Then stop the local Windows poller (delete the Startup `.vbs` entry) —
+two pollers on the same bot token will conflict.
 
 ---
 
@@ -458,3 +476,45 @@ Two things worth knowing about this schema:
   running `app/telegram_polling.py`, deploy the web service, and call
   Telegram's `setWebhook` pointing at `https://<host>/telegram/webhook`
   with `secret_token=TELEGRAM_WEBHOOK_SECRET`.
+
+---
+
+## 12. Abuse protection / "is this safe from API attacks"
+
+Two concrete protections in `app/api/telegram.py`, both added after
+observing the bot re-send its closing message on every single message
+received after an interview had already finished:
+
+- **Post-completion silence**: once `state["scoring_completed"]` is
+  `True`, the bot replies with a short "already complete" notice exactly
+  once, then goes fully silent for that chat — no more Telegram sends, no
+  more Supabase writes, regardless of how many further messages arrive.
+  Before this fix, every post-completion message re-ran the full
+  send/log pipeline (cheap per message, but unbounded and pointless).
+- **Per-chat rate limit** (`_is_rate_limited()`): messages from the same
+  chat closer together than `MIN_SECONDS_BETWEEN_MESSAGES` (1.5s) are
+  dropped before any DB read happens at all — no real person types that
+  fast, so this only affects scripted flooding. It's in-memory and
+  per-process (resets on restart, doesn't coordinate across multiple
+  worker processes) — a flood throttle, not a hard security boundary.
+
+What this deployment does **not** have, and why that's an acceptable
+tradeoff at this scale rather than an oversight:
+- No CAPTCHA or allowlist — any Telegram user who finds the bot can start
+  a conversation. Reasonable for a screening bot meant to be found and
+  used; not reasonable if this needs to resist a targeted flood from many
+  different chat IDs at once (the rate limit above is per-chat, not
+  global).
+- `USE_GEMINI_EXTRACTION` defaults to `false`, so even sustained use
+  costs Supabase reads/writes (cheap, generous free tier) and Telegram
+  API calls (free, Telegram enforces its own send-rate limits as a
+  backstop) — not LLM tokens. Turning that flag on changes this
+  calculation: at that point, a flood maps directly to Gemini API cost,
+  and the per-chat rate limit above is the only thing standing between a
+  flood and that cost.
+- Supabase queries go through `supabase-py`/PostgREST with typed
+  filters, not raw string-built SQL, so standard SQL injection isn't a
+  realistic vector here regardless of what a candidate types.
+- RLS (`0003_rls_policies.sql`) means even if a browser or anon key ever
+  got hold of `SUPABASE_URL`, it couldn't read candidate data without the
+  service-role key — only `SUPABASE_KEY` (used server-side) can.

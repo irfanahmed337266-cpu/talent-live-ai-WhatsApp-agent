@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response
@@ -25,6 +26,28 @@ MAX_WEBHOOK_BYTES = 256 * 1024
 MAX_TEXT_LENGTH = 4096
 
 MEDIA_TYPES = ("document", "photo", "voice", "audio", "video")
+
+# --------------------------------------------------------------------------
+# PER-CHAT RATE LIMIT
+#
+# No real person types faster than this; a script flooding the bot does.
+# In-memory and per-process, so it resets on restart and doesn't protect
+# across multiple worker processes - it's a cheap flood throttle, not a
+# security boundary. Dropped messages get no reply and no DB writes at
+# all (not even a dedupe-table write), which is the point: the whole cost
+# of a flood becomes one dict lookup.
+# --------------------------------------------------------------------------
+
+MIN_SECONDS_BETWEEN_MESSAGES = 1.5
+
+_last_message_at: Dict[str, float] = {}
+
+
+def _is_rate_limited(chat_id: str) -> bool:
+    now = time.monotonic()
+    last = _last_message_at.get(chat_id)
+    _last_message_at[chat_id] = now
+    return last is not None and (now - last) < MIN_SECONDS_BETWEEN_MESSAGES
 
 
 @router.post("/telegram/webhook")
@@ -124,14 +147,37 @@ def parse_update(payload: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+def _already_completed_message(language: Optional[str]) -> str:
+
+    if language == "roman_urdu":
+        return (
+            "Aap ka Talent Live screening pehle hi complete ho chuka hai. "
+            "Shukriya! Agar fit bana to hum khud rabta karenge."
+        )
+
+    if language == "urdu":
+        return (
+            "آپ کی Talent Live screening پہلے ہی مکمل ہو چکی ہے۔ شکریہ! "
+            "اگر fit بنا تو ہم خود رابطہ کریں گے۔"
+        )
+
+    return (
+        "Your Talent Live screening is already complete. Thanks again! "
+        "We'll reach out if there's a fit."
+    )
+
+
 def process_message(message: Dict[str, Any]) -> None:
     message_id = message["id"]
+    chat_id = message["chat_id"]
+
+    if _is_rate_limited(chat_id):
+        return
 
     try:
         if has_processed_message(message_id):
             return
 
-        chat_id = message["chat_id"]
         session = get_agent_session(chat_id)
 
         if session and isinstance(session.get("state_json"), dict):
@@ -141,6 +187,39 @@ def process_message(message: Dict[str, Any]) -> None:
 
         state["phone_number"] = chat_id
         state["telegram_username"] = message.get("username")
+
+        # --------------------------------------------------------------------
+        # ALREADY COMPLETE
+        #
+        # Without this, every message sent after scoring finishes (even
+        # "hello") re-triggers a full pipeline: run_agent() itself
+        # short-circuits cheaply, but the closing message still gets
+        # re-sent via Telegram, and the session/interview-message writes
+        # still happen, on every single message, forever. Reply once with
+        # a short notice, then go fully silent - no further Telegram
+        # sends or Supabase writes for this chat.
+        # --------------------------------------------------------------------
+
+        if state.get("scoring_completed") is True:
+
+            if not state.get("post_completion_notice_sent"):
+
+                try:
+                    telegram_client.send_text_message(
+                        chat_id,
+                        _already_completed_message(state.get("language")),
+                    )
+                except Exception as exc:
+                    print(f"[telegram] failed to send completion notice: {type(exc).__name__}")
+
+                state["post_completion_notice_sent"] = True
+
+                try:
+                    save_agent_session(chat_id, state, message_id=message_id)
+                except Exception as exc:
+                    print(f"[telegram] failed to save session: {type(exc).__name__}")
+
+            return
 
         # Ensure a candidate row exists from the first message onward, not
         # just once Stage 3 starts (graph.py creates one lazily at that

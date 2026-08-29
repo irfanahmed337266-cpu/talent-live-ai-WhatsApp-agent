@@ -1,23 +1,16 @@
-# Render Blueprint for the Talent Live Telegram agent.
+# Render Blueprint for the Talent Live dashboard.
 #
-# Two independent services, deployed from the same repo:
-#
-# 1. talent-live-telegram-bot (Background Worker)
-#    No open port, no domain/TLS/webhook needed - it long-polls Telegram
-#    directly (see app/telegram_polling.py). This is what actually runs
-#    the interview.
-#
-# 2. talent-live-dashboard (Web Service)
-#    Serves GET /health and GET /owner/dashboard (app/api/dashboard.py) at
-#    a public onrender.com URL, protected by DASHBOARD_TOKEN. It also
-#    happens to expose the (unused) POST /telegram/webhook route from
-#    app/api/telegram.py - harmless, since the bot uses polling, not
-#    webhooks, in this deployment.
+# Only the dashboard is deployed here. The Telegram bot itself runs
+# locally via long-polling (app/telegram_polling.py, started at Windows
+# logon - see scripts/) - that's a deliberate choice, not a limitation:
+# polling needs no public URL at all, so there's nothing to host for it.
+# If that ever changes (e.g. wanting the bot to survive the laptop being
+# off), add a second "worker" service here running the same command -
+# see HANDOFF.md's Deployment section for the full definition.
 #
 # Deploy: push this repo to GitHub, then in the Render dashboard choose
-# "New +" -> "Blueprint" and point it at the repo. Render reads this file
-# and creates both services. Secrets marked `sync: false` are prompted
-# for in the dashboard - never committed here.
+# "New +" -> "Blueprint" and point it at the repo. Secrets marked
+# `sync: false` are prompted for in the dashboard - never committed here.
 #
 # SECURITY NOTE: the dashboard's only protection is DASHBOARD_TOKEN (as a
 # query param or Authorization header) - anyone with the URL + token can
@@ -25,32 +18,14 @@
 # value, not something guessable.
 
 services:
-  - type: worker
-    name: talent-live-telegram-bot
-    runtime: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m app.telegram_polling
-    envVars:
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: OWNER_CONTACT_PHONE
-        sync: false
-
   - type: web
     name: talent-live-dashboard
     runtime: python
-    # Free tier: unlike Background Workers, Render's free Web Service plan
-    # is a real option here since this is only used on-demand as an
-    # internal tool - the tradeoff is it spins down after ~15 min idle and
-    # takes ~30-50s to wake up on the next visit. Switch to "starter" in
-    # the Render dashboard any time if that delay becomes annoying.
+    # Free tier is a real option here (unlike Background Workers, which
+    # have none) since this is only used on-demand as an internal tool -
+    # the tradeoff is it spins down after ~15 min idle and takes ~30-50s
+    # to wake up on the next visit. Switch to "starter" in the Render
+    # dashboard any time if that delay becomes annoying.
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
