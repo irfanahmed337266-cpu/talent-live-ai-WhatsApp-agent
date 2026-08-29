@@ -46,7 +46,12 @@ services:
   - type: web
     name: talent-live-dashboard
     runtime: python
-    plan: starter
+    # Free tier: unlike Background Workers, Render's free Web Service plan
+    # is a real option here since this is only used on-demand as an
+    # internal tool - the tradeoff is it spins down after ~15 min idle and
+    # takes ~30-50s to wake up on the next visit. Switch to "starter" in
+    # the Render dashboard any time if that delay becomes annoying.
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
