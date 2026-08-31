@@ -1061,12 +1061,11 @@ def mark_answer(
     # --------------------------------------------------------
     # QUESTION HAS NOW BEEN ANSWERED
     #
-    # Clear only the pending pair.
-    #
-    # current_category/current_question can remain temporarily
-    # available to the advancement logic.
+    # Clear the pending pair and any stale active snapshot so
+    # the same question is not reused on the next turn.
     # --------------------------------------------------------
 
+    interview["current_question"] = None
     interview["pending_question"] = None
     interview["pending_category"] = None
 
@@ -1193,6 +1192,12 @@ def process_answer(
             pending_category
         )
 
+        # Keep the stale question snapshot from being reused if
+        # the follow-up probe is not generated.
+        state["next_question"] = None
+        state["interview_active_question"] = None
+        state["interview_active_category"] = None
+
         probe = handle_vague_answer(
             state
         )
@@ -1224,6 +1229,8 @@ def process_answer(
     # --------------------------------------------------------
 
     state["next_question"] = None
+    state["interview_active_question"] = None
+    state["interview_active_category"] = None
 
     return state
 

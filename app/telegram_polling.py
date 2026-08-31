@@ -27,7 +27,18 @@ from app.services import telegram as telegram_client
 
 def run_polling_loop() -> None:
 
-    telegram_client.delete_webhook()
+    # This used to be unprotected: if it raised for any reason (a network
+    # hiccup, DNS issue, firewall/antivirus interference - anything
+    # machine-specific), the whole process crashed before ever reaching
+    # the polling loop below, which does have its own retry logic. The
+    # supervisor script would then restart it 5s later, only to crash
+    # again the same way - a fast, mostly-silent crash loop that still
+    # occasionally opens a getUpdates connection just long enough to
+    # collide with another poller, without making real progress.
+    try:
+        telegram_client.delete_webhook()
+    except Exception as exc:
+        print(f"[telegram] delete_webhook failed (continuing anyway): {type(exc).__name__}: {exc}")
 
     print("[telegram] webhook cleared, starting long-polling...")
 
@@ -47,10 +58,14 @@ def run_polling_loop() -> None:
 
             offset = update["update_id"] + 1
 
-            message = parse_update(update)
+            try:
+                message = parse_update(update)
 
-            if message:
-                process_message(message)
+                if message:
+                    process_message(message)
+
+            except Exception as exc:
+                print(f"[telegram] failed to handle update {update.get('update_id')}: {type(exc).__name__}: {exc}")
 
 
 if __name__ == "__main__":
