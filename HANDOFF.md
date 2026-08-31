@@ -482,10 +482,13 @@ Two things worth knowing about this schema:
 
 ## 10. Known issues / rough edges
 
-- **"/start" as a candidate name**: at least one test candidate has
-  `name = "/start"` — the literal Telegram `/start` command text got
-  captured by name-extraction. Worth a guard in `_extract_name`/
-  `_local_extract_candidate` to ignore slash-commands.
+- ~~**"/start" as a candidate name**~~ **Fixed.** `_local_extract_candidate`
+  (the live copy) now returns immediately for any message starting with
+  `/`, before any field extraction runs. This mattered more than it
+  sounds like it should: `/start` is the literal text Telegram sends
+  when someone taps "Start," so it was the first message of nearly
+  every real conversation - it was silently eating the name question
+  for essentially everyone, not just an edge case.
 - **Duplicated logic in `graph.py`** — see §6.
 - **`phone_number` vs `contact_phone`** naming: `state["phone_number"]`
   (and the `candidates.telegram_chat_id`-keyed lookups) actually hold the

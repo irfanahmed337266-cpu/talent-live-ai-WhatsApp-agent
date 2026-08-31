@@ -4902,6 +4902,15 @@ def _local_extract_candidate(
     if not message:
         return extracted
 
+    # Telegram bot commands (/start, /help, etc.) are not candidate data.
+    # Without this, "/start" - the literal text Telegram sends when
+    # someone taps "Start", i.e. nearly every real conversation's first
+    # message - fell through to the generic "short answer" branch below
+    # and got captured as the candidate's name, silently skipping the
+    # actual name question since the field then looked already filled.
+    if message.startswith("/"):
+        return extracted
+
     existing = existing or {}
 
     # ============================================================
