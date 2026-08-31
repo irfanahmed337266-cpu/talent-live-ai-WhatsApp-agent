@@ -499,6 +499,62 @@ def get_passed_candidates() -> list[Dict[str, Any]]:
     for score in scores_response.data or []:
         candidate = candidates_by_id.get(score.get("candidate_id"))
         if candidate:
-            passed.append({**candidate, **score})
+            # candidate's own "id" must win - both tables have an "id"
+            # column, and interview_scores.id is a different row entirely.
+            passed.append({**score, **candidate})
 
     return passed
+
+
+def get_all_candidates() -> list[Dict[str, Any]]:
+    """
+    Return every candidate regardless of status or score, newest first,
+    with score fields merged in where a score exists yet (still in
+    progress = no score row, which is fine - the dashboard shows that
+    as "no score yet" rather than excluding the candidate).
+    """
+
+    candidates_response = (
+        supabase
+        .table("candidates")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    candidates = candidates_response.data or []
+
+    candidate_ids = [
+        candidate["id"]
+        for candidate in candidates
+        if candidate.get("id")
+    ]
+
+    scores_by_candidate: Dict[str, Dict[str, Any]] = {}
+
+    if candidate_ids:
+
+        scores_response = (
+            supabase
+            .table("interview_scores")
+            .select("*")
+            .in_("candidate_id", candidate_ids)
+            .execute()
+        )
+
+        for score in scores_response.data or []:
+            candidate_id = score.get("candidate_id")
+            if candidate_id:
+                scores_by_candidate[candidate_id] = score
+
+    result: list[Dict[str, Any]] = []
+
+    for candidate in candidates:
+
+        score = scores_by_candidate.get(candidate.get("id"), {})
+
+        # candidate's own "id" must win - see the note in
+        # get_passed_candidates() above.
+        result.append({**score, **candidate})
+
+    return result

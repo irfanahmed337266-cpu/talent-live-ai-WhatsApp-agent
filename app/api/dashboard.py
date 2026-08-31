@@ -14,9 +14,20 @@ from fastapi.responses import HTMLResponse
 from app.services import telegram as telegram_client
 from app.services.supabase import (
     get_agent_sessions_for_candidates,
+    get_all_candidates,
     get_materials_for_candidates,
-    get_passed_candidates,
 )
+
+# Talent Live's own stage numbers (app/agents/state.py) - used to render a
+# human-readable "Status" column instead of a bare integer.
+STAGE_LABELS = {
+    0: "Just started",
+    1: "Basic info",
+    2: "Materials",
+    3: "Interview",
+    4: "Model explanation",
+    5: "Completed",
+}
 
 # Matches the fixed order of the 4 "family"-category questions in
 # app/agents/interview.py's QUESTION_BANK (reworded to be professional -
@@ -54,12 +65,12 @@ def _resolve_token(
 
 
 @router.get("/candidates", response_model=List[Dict[str, Any]])
-def passed_candidates(
+def all_candidates_json(
     authorization: str | None = Header(default=None),
     token: str | None = Query(default=None),
 ) -> List[Dict[str, Any]]:
     _authorize(_resolve_token(authorization, token))
-    return get_passed_candidates()
+    return get_all_candidates()
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -70,7 +81,7 @@ def dashboard(
     # A plain browser visit can't set an Authorization header, so this
     # endpoint also accepts ?token=... as a link-friendly fallback.
     _authorize(_resolve_token(authorization, token))
-    candidates = get_passed_candidates()
+    candidates = get_all_candidates()
 
     candidate_ids = [
         c["id"] for c in candidates if c.get("id")
@@ -94,16 +105,23 @@ def dashboard(
         session_state = sessions_by_candidate.get(candidate.get("id"), {})
         availability_cell = _render_availability_cell(session_state)
         profile_cell = _render_profile_details(session_state)
+        conversation_cell = _render_conversation_cell(session_state)
+        status_cell = _render_status_cell(candidate)
+
+        score_value = candidate.get("total_score")
+        band_value = candidate.get("score_band")
 
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(candidate.get('name') or 'Unnamed'))}</td>"
-            f"<td>{html.escape(str(candidate.get('total_score', '')))}</td>"
-            f"<td>{html.escape(str(candidate.get('score_band', '')))}</td>"
+            f"<td>{status_cell}</td>"
+            f"<td>{html.escape(str(score_value)) if score_value is not None else '—'}</td>"
+            f"<td>{html.escape(str(band_value)) if band_value else '—'}</td>"
             f"<td>{availability_cell}</td>"
             f"<td>{resume_cell}</td>"
             f"<td>{contact}</td>"
             f"<td>{profile_cell}</td>"
+            f"<td>{conversation_cell}</td>"
             "</tr>"
         )
 
@@ -115,13 +133,31 @@ def dashboard(
         ".field-label{color:#666;font-size:0.85em}"
         "details summary{cursor:pointer;color:#06c}"
         "dl{margin:6px 0}dt{font-weight:600;margin-top:6px}dd{margin-left:0}"
+        ".chat{max-height:320px;overflow-y:auto;min-width:280px;max-width:420px}"
+        ".chat p{margin:4px 0;padding:6px 8px;border-radius:6px}"
+        ".chat .user{background:#eef2ff}"
+        ".chat .assistant{background:#f4f4f4}"
+        ".chat .role{font-weight:600;font-size:0.8em;display:block;color:#666}"
         "</style></head>"
-        "<body><h1>Passed candidates</h1><table><tr><th>Name</th><th>Score</th>"
-        "<th>Band</th><th>Availability</th><th>Resume/Materials</th>"
-        "<th>Telegram</th><th>Full Profile</th></tr>"
+        "<body><h1>All candidates</h1><table><tr><th>Name</th><th>Status</th>"
+        "<th>Score</th><th>Band</th><th>Availability</th><th>Resume/Materials</th>"
+        "<th>Telegram</th><th>Full Profile</th><th>Conversation</th></tr>"
         + "".join(rows)
         + "</table></body></html>"
     )
+
+
+def _render_status_cell(candidate: Dict[str, Any]) -> str:
+
+    status = candidate.get("status")
+    stage = candidate.get("current_stage")
+
+    stage_label = STAGE_LABELS.get(stage, f"Stage {stage}" if stage is not None else "Unknown")
+
+    if status == "completed":
+        return html.escape(stage_label)
+
+    return html.escape(f"In progress ({stage_label})")
 
 
 def _render_availability_cell(session_state: Dict[str, Any]) -> str:
@@ -187,6 +223,55 @@ def _render_profile_details(session_state: Dict[str, Any]) -> str:
         "<details><summary>View</summary><dl>"
         + items
         + "</dl></details>"
+    )
+
+
+def _render_conversation_cell(session_state: Dict[str, Any]) -> str:
+    """
+    Full message-by-message transcript, from state["conversation_history"]
+    (built up by graph.py's response_node on every turn, starting at
+    message 1 - this covers the whole conversation including Stage 1/2,
+    not just the Stage 3 interview, and needs no separate DB join since
+    it's already in the same agent_sessions blob fetched for the other
+    columns). Collapsed behind a <details> toggle like Full Profile.
+    """
+
+    history = session_state.get("conversation_history")
+
+    if not isinstance(history, list) or not history:
+        return '<span class="not-submitted">No messages yet</span>'
+
+    lines = []
+
+    for item in history:
+
+        if not isinstance(item, dict):
+            continue
+
+        role = item.get("role")
+        content = item.get("content")
+
+        if not content:
+            continue
+
+        role_label = "Candidate" if role == "user" else "Bot"
+        css_class = "user" if role == "user" else "assistant"
+
+        lines.append(
+            f'<p class="{css_class}">'
+            f'<span class="role">{html.escape(role_label)}</span>'
+            f"{html.escape(str(content))}"
+            "</p>"
+        )
+
+    if not lines:
+        return '<span class="not-submitted">No messages yet</span>'
+
+    return (
+        "<details><summary>View conversation "
+        f"({len(lines)})</summary><div class=\"chat\">"
+        + "".join(lines)
+        + "</div></details>"
     )
 
 
