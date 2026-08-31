@@ -56,6 +56,12 @@ USE_GEMINI_EXTRACTION = (
 # updated without a code change.
 OWNER_CONTACT_PHONE = os.getenv("OWNER_CONTACT_PHONE", "")
 
+# WhatsApp number given ONLY to candidates who scored "strong" (see
+# get_score_band in scoring.py) - a concrete next step for a pass,
+# distinct from OWNER_CONTACT_PHONE's generic "we'll reach out" line
+# shown to everyone else.
+PASSED_CANDIDATE_WHATSAPP = os.getenv("PASSED_CANDIDATE_WHATSAPP", "")
+
 
 gemini_client = None
 
@@ -3868,6 +3874,89 @@ def interview_stage_node(
 # STAGE 4 - MODEL EXPLANATION
 # ========================================================================
 
+def _closing_addendum(
+    state: AgentState,
+    language: str,
+) -> str:
+    """
+    Either a concrete next step for a "strong" pass (a WhatsApp number to
+    contact) or a generic acknowledgment for everyone else.
+
+    IMPORTANT: this must be merged into the model explanation itself
+    (see model_explanation_stage_node) - it's the only message actually
+    sent on the turn the interview completes. Scoring runs in the
+    "scoring" graph node, which comes *after* "response" and has no edge
+    back into it, and run_agent() short-circuits every subsequent turn
+    once scoring_completed is True - so a separately-generated "closing
+    message" (e.g. in response_node's STAGE_SCORING branch) never
+    actually gets a chance to be delivered to the candidate.
+    """
+
+    passed = (
+        state.get("score_band") == "strong"
+        and bool(PASSED_CANDIDATE_WHATSAPP)
+    )
+
+    if passed:
+
+        if language == "roman_urdu":
+            return (
+                "\n\nAap ka profile humein acha laga — please humein "
+                f"WhatsApp par {PASSED_CANDIDATE_WHATSAPP} par contact "
+                "karein taake hum aage barh sakein."
+            )
+
+        if language == "urdu":
+            return (
+                "\n\nآپ کا profile ہمیں اچھا لگا — براہ کرم ہم سے "
+                f"WhatsApp پر {PASSED_CANDIDATE_WHATSAPP} پر رابطہ کریں "
+                "تاکہ ہم آگے بڑھ سکیں۔"
+            )
+
+        return (
+            "\n\nYour profile stood out to us — please reach out to us "
+            f"on WhatsApp at {PASSED_CANDIDATE_WHATSAPP} so we can move "
+            "forward."
+        )
+
+    contact_line = ""
+
+    if OWNER_CONTACT_PHONE:
+
+        if language == "roman_urdu":
+            contact_line = (
+                f" Aap humein {OWNER_CONTACT_PHONE} par bhi contact "
+                "kar sakte hain."
+            )
+
+        elif language == "urdu":
+            contact_line = (
+                f" آپ ہم سے {OWNER_CONTACT_PHONE} پر بھی رابطہ کر "
+                "سکتے ہیں۔"
+            )
+
+        else:
+            contact_line = (
+                f" You can also reach us at {OWNER_CONTACT_PHONE}."
+            )
+
+    if language == "roman_urdu":
+        return (
+            "\n\nAgar humein laga ke aap fit hain, to hum aap se "
+            "rabta karenge!" + contact_line
+        )
+
+    if language == "urdu":
+        return (
+            "\n\nاگر ہمیں لگا کہ آپ فٹ ہیں، تو ہم آپ سے رابطہ "
+            "کریں گے!" + contact_line
+        )
+
+    return (
+        "\n\nIf we think you're a fit, we'll contact you!" + contact_line
+    )
+
+
 def model_explanation_stage_node(
     state: AgentState,
 ) -> AgentState:
@@ -3976,6 +4065,17 @@ def model_explanation_stage_node(
             "away, that just means the timing isn't right yet — it's "
             "not a final no."
         )
+
+    # --------------------------------------------------------------------
+    # Compute the score NOW (not just in the later "scoring" graph node),
+    # so score_band is available to merge a pass-specific closing line
+    # into this same message. See _closing_addendum()'s docstring for why
+    # this can't be deferred to a separately-sent message.
+    # --------------------------------------------------------------------
+
+    apply_score(state)
+
+    explanation = explanation + _closing_addendum(state, language)
 
     state["model_explanation"] = explanation
     state["model_explanation_sent"] = True
@@ -4448,50 +4548,23 @@ def response_node(
 
         if not response.strip():
 
-            contact_line = ""
-
-            if OWNER_CONTACT_PHONE:
-
-                if language == "roman_urdu":
-                    contact_line = (
-                        f" Aap humein {OWNER_CONTACT_PHONE} "
-                        "par bhi contact kar sakte hain."
-                    )
-
-                elif language == "urdu":
-                    contact_line = (
-                        f" آپ ہم سے {OWNER_CONTACT_PHONE} پر "
-                        "بھی رابطہ کر سکتے ہیں۔"
-                    )
-
-                else:
-                    contact_line = (
-                        f" You can also reach us at {OWNER_CONTACT_PHONE}."
-                    )
+            # Rare fallback only: under normal execution the interview
+            # completes and the model explanation (already merged with
+            # this same _closing_addendum) is what's actually sent -
+            # see model_explanation_stage_node. This branch only matters
+            # if that step was somehow skipped and ai_response ended up
+            # empty. apply_score() is idempotent, so calling it again
+            # here (in case score_band isn't set yet) is safe.
+            apply_score(state)
 
             if language == "roman_urdu":
-
-                response = (
-                    "Shukriya aap ka waqt dene ke liye! "
-                    "Agar humein laga ke aap fit hain, to hum aap "
-                    "se rabta karenge!" + contact_line
-                )
-
+                opener = "Shukriya aap ka waqt dene ke liye!"
             elif language == "urdu":
-
-                response = (
-                    "آپ کا وقت دینے کا شکریہ! "
-                    "اگر ہمیں لگا کہ آپ فٹ ہیں، تو ہم آپ سے رابطہ "
-                    "کریں گے!" + contact_line
-                )
-
+                opener = "آپ کا وقت دینے کا شکریہ!"
             else:
+                opener = "Thank you for your time!"
 
-                response = (
-                    "Thank you for your time! "
-                    "If we think you're a fit, we'll contact "
-                    "you!" + contact_line
-                )
+            response = opener + _closing_addendum(state, language)
 
         state["ai_response"] = response
         state["last_ai_message"] = response

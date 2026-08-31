@@ -95,8 +95,41 @@ once (Telegram refuses `getUpdates` while a webhook is registered).
 | 1 | `STAGE_BASIC` | An opening message (`_opening_message()`, sent once, `greeting_sent` flag) explains up front that this is a multi-step, ~15-20 message conversation — prepended to the very first question, no extra round-trip. Then collects `name`, `age`, `location`, `experience`, `contact_phone` one at a time, skipping any the candidate already volunteered |
 | 2 | `STAGE_MATERIALS` | One invitation ("send a CV/GitHub/portfolio, or just talk") — nothing is required |
 | 3 | `STAGE_INTERVIEW` | **13 fixed questions**, always in this order and count: skills (3), work (3), education (2), **availability/work-stability (4 — see naming note below)**, open_talk (1) |
-| 4 | `STAGE_MODEL_EXPLANATION` | One explanatory message: what Talent Live/Connect is, **and now also what happens next / how to interpret silence** |
-| 5 | `STAGE_SCORING` | Runs the deterministic scorer, persists results, sends a closing message ("if we think you're a fit, we'll contact you" + `OWNER_CONTACT_PHONE` if set), ends |
+| 4 | `STAGE_MODEL_EXPLANATION` | **The message actually delivered on the completing turn.** Explains what Talent Live/Connect is, what happens next, **and — critically — the closing/pass-fail line too** (see the architecture note right below; this is not where you'd expect it) |
+| 5 | `STAGE_SCORING` | Runs the deterministic scorer (also called early, from Stage 4 — see below), persists results to Supabase, ends |
+
+### ⚠️ Architecture note: why the "closing message" lives in Stage 4, not Stage 5
+
+This isn't how it looks like it should work, so it's worth being explicit.
+The graph's edges are `model_explanation → response → (scoring | end)` —
+`response` (which composes the actual outgoing text) runs **once**, and
+has no edge back into it after `scoring` runs. Combined with
+`run_agent()`'s short-circuit (`if stage == STAGE_SCORING and
+scoring_completed: return state unchanged`), this means: **once the
+interview completes, exactly one more message ever gets composed, and
+`scoring` finishing a fraction of a second later doesn't get a second
+chance to say anything new.**
+
+So `_closing_addendum()` (in `graph.py`) — the "if we think you're a fit,
+we'll contact you" text, or the pass-specific WhatsApp line — is merged
+directly into the model explanation, in `model_explanation_stage_node()`,
+which calls `apply_score(state)` **early** (before `scoring_stage_node`
+would otherwise run) specifically so `score_band` is available in time.
+`response_node`'s own `STAGE_SCORING` branch still has a copy of this
+logic too, but it's a rare fallback (only reachable if `ai_response`
+somehow ended up empty when stage was already 5) — the real path is
+Stage 4. If you need to change the closing text, **edit
+`model_explanation_stage_node`**, not the Stage 5 branch, or your change
+will silently never be sent.
+
+**`PASSED_CANDIDATE_WHATSAPP`** (env var): when set, and only for
+candidates who scored `"strong"` (`score_band`, see `scoring.py`), the
+closing line invites them to reach out on that WhatsApp number directly —
+a concrete next step for a pass, instead of the generic "we'll contact
+you" everyone else gets. Verified directly (not just read): ran the
+graph through a full mocked interview twice, confirmed the number only
+appears when `score_band == "strong"`, and confirmed `_closing_addendum()`
+returns the generic text for `"borderline"`, `"weak"`, and unset.
 
 **Naming note on the "family" category**: it's still called `"family"` internally (category key, `family_evidence` field, `CATEGORY_REQUIRED_FIELDS["family"]`) but the questions were reworded away from personal-family topics (father's job, siblings, living arrangement) to professional availability/work-stability topics (weekly availability, other commitments, setup stability, internet/workspace reliability). This was a deliberate word-for-word edit applied identically to **both** `interview.py` and `graph.py`'s duplicate copy (see §6) — if you touch this again, edit both.
 
@@ -363,7 +396,8 @@ two pollers on the same bot token will conflict.
 | `TELEGRAM_BOT_TOKEN` | bot (poller + webhook) | Yes | From @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | `app/api/telegram.py` webhook only | No | Only matters if you switch to webhook transport |
 | `DASHBOARD_TOKEN` | dashboard | Yes (for dashboard) | Long random string, see §7 security note |
-| `OWNER_CONTACT_PHONE` | closing message (Stage 5) | No | If blank, closing message omits the "reach us at..." sentence |
+| `OWNER_CONTACT_PHONE` | closing message (actually composed in Stage 4, see §3) | No | If blank, closing message omits the "reach us at..." sentence |
+| `PASSED_CANDIDATE_WHATSAPP` | closing message, "strong" scores only | No | If blank, passing candidates get the same generic closing as everyone else |
 | `GEMINI_API_KEY` | optional extraction | No | Only used if `USE_GEMINI_EXTRACTION=true` |
 | `GEMINI_MODEL` | optional extraction | No | Defaults to `gemini-2.5-flash` |
 | `USE_GEMINI_EXTRACTION` | `graph.py` | No | Default `false` — extraction is regex-based by default (see `_local_extract_candidate`) |
@@ -476,8 +510,9 @@ Two things worth knowing about this schema:
 - **Change scoring weights/deductions**: constants at the top of
   `app/agents/scoring.py`.
 - **Change the closing message or model explanation**: `graph.py`,
-  `model_explanation_stage_node()` and the `STAGE_SCORING` branch of
-  `response_node()`.
+  `model_explanation_stage_node()` — see §3's architecture note for why
+  this is where the closing text actually lives, not Stage 5.
+  `_closing_addendum()` is the shared pass/fail logic.
 - **Add a new candidate field to collect**: add it to `CandidateState` in
   `state.py`, to `CANDIDATE_FIELDS`/`BASIC_REQUIRED_FIELDS` in
   `graph.py` if it should be asked in Stage 1, add an extraction
