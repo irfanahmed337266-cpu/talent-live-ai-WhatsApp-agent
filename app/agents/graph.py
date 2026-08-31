@@ -5053,36 +5053,74 @@ def _local_extract_candidate(
     # SKILLS
     # ============================================================
 
+    # Geared towards automation/AI/sales-marketing/tech-developer/SaaS,
+    # matching what this business actually screens for. Every term is
+    # matched on word boundaries (not plain substring) so short ones
+    # like "ml", "api", "aws", "sem" don't false-positive inside
+    # unrelated words (e.g. "api" inside "rapid", "aws" inside "draws").
     skill_terms = [
+        # automation
+        "automation",
+        "zapier",
+        "make.com",
+        "n8n",
+        "workflow automation",
+        "rpa",
+        # ai
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "ml",
+        "chatgpt",
+        "llm",
+        "prompt engineering",
+        "openai",
+        "langchain",
+        # sales / marketing
         "sales",
         "marketing",
-        "coding",
+        "digital marketing",
+        "seo",
+        "sem",
+        "ppc",
+        "email marketing",
+        "lead generation",
+        "crm",
+        "copywriting",
+        "content marketing",
+        "social media marketing",
+        "growth marketing",
+        "facebook ads",
+        "google ads",
+        # tech / developer
+        "developer",
         "programming",
+        "coding",
+        "software development",
         "python",
         "javascript",
+        "react",
+        "node.js",
+        "api",
+        "sql",
+        "full stack",
+        "backend",
+        "frontend",
+        "cloud",
+        "aws",
+        # saas / e-commerce
+        "saas",
         "shopify",
-        "automation",
-        "ai",
-        "design",
-        "graphic design",
-        "video editing",
-        "customer service",
-        "management",
+        "e-commerce",
     ]
 
     found_skills = []
 
     for skill in skill_terms:
 
-        # Avoid matching "ai" inside unrelated words.
-        if skill == "ai":
-            if re.search(
-                r"\bai\b",
-                lower,
-            ):
-                found_skills.append(skill)
+        pattern = r"\b" + re.escape(skill) + r"\b"
 
-        elif skill in lower:
+        if re.search(pattern, lower):
             found_skills.append(skill)
 
     if found_skills:
