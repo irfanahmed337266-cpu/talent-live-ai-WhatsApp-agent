@@ -31,6 +31,19 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
+# BUGFIX: this file reads several os.getenv() values below at import time
+# but never used to call load_dotenv() itself - it relied entirely on
+# some other already-imported module (app.services.supabase) having
+# loaded .env first. In the real bot's actual import chain
+# (telegram_polling.py -> app.api.telegram -> app.agents.graph), this
+# file is imported BEFORE app.services.supabase, so GEMINI_API_KEY,
+# OWNER_CONTACT_PHONE, USE_GEMINI_EXTRACTION, and
+# PASSED_CANDIDATE_WHATSAPP were always reading their default/blank
+# values in production, regardless of what .env actually contained.
+load_dotenv()
+
 try:
     from google import genai
 except ImportError:

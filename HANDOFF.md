@@ -131,6 +131,25 @@ graph through a full mocked interview twice, confirmed the number only
 appears when `score_band == "strong"`, and confirmed `_closing_addendum()`
 returns the generic text for `"borderline"`, `"weak"`, and unset.
 
+**⚠️ This was silently broken in production until fixed** (unrelated to
+the logic above): `graph.py` read `PASSED_CANDIDATE_WHATSAPP`,
+`OWNER_CONTACT_PHONE`, `GEMINI_API_KEY`, and `USE_GEMINI_EXTRACTION` via
+`os.getenv()` at import time but never called `load_dotenv()` itself —
+it relied on some other already-imported module
+(`app.services.supabase`) having loaded `.env` first. In the real bot's
+actual import chain (`telegram_polling.py` → `app.api.telegram` →
+`app.agents.graph`), `graph.py` is imported *before*
+`app.services.supabase`, so all four of those values were always
+reading their blank/default fallback in the live bot, regardless of
+what `.env` actually contained. This is exactly the kind of bug that
+hides from testing that explicitly passes env vars to a test process
+(which is what every earlier verification in this file did, without
+realizing it was bypassing the exact failure mode that existed in
+production) - re-verified after the fix with zero env vars passed
+explicitly, relying purely on `graph.py`'s own `load_dotenv()` call,
+confirming the value now loads correctly. Fix: `graph.py` now calls
+`load_dotenv()` itself, before any of its own `os.getenv()` reads.
+
 **Naming note on the "family" category**: it's still called `"family"` internally (category key, `family_evidence` field, `CATEGORY_REQUIRED_FIELDS["family"]`) but the questions were reworded away from personal-family topics (father's job, siblings, living arrangement) to professional availability/work-stability topics (weekly availability, other commitments, setup stability, internet/workspace reliability). This was a deliberate word-for-word edit applied identically to **both** `interview.py` and `graph.py`'s duplicate copy (see §6) — if you touch this again, edit both.
 
 **Stage 3 detail** — worth understanding because it's non-obvious from
