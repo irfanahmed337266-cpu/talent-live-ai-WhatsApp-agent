@@ -596,6 +596,21 @@ Two things worth knowing about this schema:
 
 ## 10. Known issues / rough edges
 
+- ~~**Stage 1 "experience" field had no generic text fallback**~~
+  **Fixed — this was severe.** Unlike `name`/`location` (which fall back
+  to accepting the raw cleaned text if structured extraction fails),
+  `expected_field == "experience"` only ever accepted a bare "N years"
+  match. Any real answer phrased differently — "5+ years", "Over
+  5+years", "Created 150+ WordPress websites" — extracted to nothing,
+  the field stayed permanently missing, and the candidate got asked
+  "How much work experience do you have..." forever with **no way to
+  ever complete the interview**. Confirmed with a real transcript
+  (candidate answered 4 times, looped every time) before fixing. Fix:
+  added the same generic-text fallback `name`/`location` already had,
+  plus taught `_extract_experience`'s regex to tolerate "5+ years"
+  phrasing directly. If you add a new Stage 1 field, give it a generic
+  fallback too — a missing one doesn't fail loudly, it just traps
+  candidates in an infinite loop that looks fine in every log line.
 - ~~**"/start" as a candidate name**~~ **Fixed.** `_local_extract_candidate`
   (the live copy) now returns immediately for any message starting with
   `/`, before any field extraction runs. This mattered more than it

@@ -2092,10 +2092,14 @@ def _extract_experience(
     text = str(message).strip()
 
     patterns = [
-        r"\b(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s-]{1,40}\s+)?experience\b",
-        r"\bexperience\s*(?:of|:)?\s*(\d+(?:\.\d+)?)\s*years?\b",
-        r"\bworking\s+(?:for|in)\s+(\d+(?:\.\d+)?)\s*years?\b",
-        r"\bworked\s+(?:for|in)\s+(\d+(?:\.\d+)?)\s*years?\b",
+        r"\b(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s-]{1,40}\s+)?experience\b",
+        r"\bexperience\s*(?:of|:)?\s*(\d+(?:\.\d+)?)\s*\+?\s*years?\b",
+        r"\bworking\s+(?:for|in)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?\b",
+        r"\bworked\s+(?:for|in)\s+(\d+(?:\.\d+)?)\s*\+?\s*years?\b",
+        # bare "N+ years"/"N years" - deliberately last/lowest priority,
+        # since it's the loosest pattern and could otherwise shadow more
+        # specific phrasing above.
+        r"\b(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)\b",
     ]
 
     for pattern in patterns:
@@ -2109,8 +2113,9 @@ def _extract_experience(
         if match:
 
             value = match.group(1)
+            suffix = "+" if "+" in match.group(0) else ""
 
-            return f"{value} years"
+            return f"{value}{suffix} years"
 
     return None
 
@@ -4938,15 +4943,24 @@ def _local_extract_candidate(
             extracted["experience"] = experience
         else:
             match = re.fullmatch(
-                r"\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*",
+                r"\s*(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)\s*",
                 message,
                 re.IGNORECASE,
             )
 
             if match:
-                extracted["experience"] = (
-                    f"{match.group(1)} years"
-                )
+                extracted["experience"] = message.strip()
+            else:
+                # BUGFIX: previously had no generic fallback here (unlike
+                # name/location above), so any answer not shaped exactly
+                # like "N years" - "5+ years", "Over 5+years", "Created
+                # 150+ WordPress websites" - was silently dropped, the
+                # field stayed permanently missing, and the candidate got
+                # asked this exact question forever with no way out.
+                cleaned = message.strip(" .,!?")
+
+                if cleaned:
+                    extracted["experience"] = cleaned[:200]
 
     elif expected_field == "contact_phone":
         phone = _extract_phone(message)
