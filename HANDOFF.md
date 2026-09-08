@@ -81,6 +81,40 @@ still exists and works if you ever want to switch — `deleteWebhook()` is
 called at poller startup specifically so the two transports never run at
 once (Telegram refuses `getUpdates` while a webhook is registered).
 
+### 2.1 A third transport: plain web chat (`app/api/webchat.py`)
+
+Added because Telegram is blocked in Pakistan. Same engine
+(`run_agent`), same session persistence (`agent_sessions`, via a
+synthetic `web:<uuid>` chat_id instead of a real Telegram chat_id so the
+two never collide in the same table) — just reachable as a plain web
+page (`GET /webchat`) instead of a bot. It rides on whatever app this
+router is mounted into (currently the same Render web service as the
+dashboard), so unlike WhatsApp/Messenger it needed no third-party
+business verification or approval queue to go live.
+
+- `GET /webchat` serves a single self-contained HTML+JS chat page. The
+  browser generates a `crypto.randomUUID()` on first visit, stores it in
+  `localStorage`, and sends it with every request as `session_id`.
+- `GET /webchat/history?session_id=...` returns any existing
+  conversation for that session **without** invoking the agent — the
+  page calls this on load so a reload/return visit replays prior
+  messages instead of re-sending `/start` into a mid-interview session
+  (which would otherwise get recorded as the answer to whatever question
+  was pending).
+- `POST /webchat/message` is the actual turn: validates `session_id`
+  (must look like a real UUID) and `message`, applies the same 1.5s
+  per-session rate limit and post-completion silence as
+  `app/api/telegram.py`, then calls `run_agent` exactly the same way.
+- **Known v1 limitation**: no file upload, so Stage 2 materials can't
+  actually be attached here — candidates can still say "I don't have
+  anything" / "I can just talk," which the existing text-based materials
+  detection already handles fine.
+- Verified end-to-end against the real database before shipping (not
+  just compiled): a real `/start` → greeting exchange, confirmed
+  `/webchat/history` replays it correctly, confirmed the rate limiter
+  blocks back-to-back requests, then the test candidate/session rows
+  were deleted afterward so they wouldn't pollute the owner dashboard.
+
 ---
 
 ## 3. The conversation flow (state machine)
@@ -350,6 +384,11 @@ whenever this machine is off or logged out.
 **The dashboard** is deployed to Render (`render.yaml`, a "Blueprint") —
 local-only was tried first, but coworkers needing easy access without
 being on the same machine/network made a real public URL necessary.
+
+**The web chat transport** (§2.1) needed no deployment step of its own —
+it's just another router (`app/api/webchat.py`) mounted on the same
+FastAPI app as the dashboard, so it went live automatically on the next
+push + Render auto-deploy, at `https://<your-service>.onrender.com/webchat`.
 
 ### `talent-live-dashboard` (Web Service, `render.yaml`)
 - **Start command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
