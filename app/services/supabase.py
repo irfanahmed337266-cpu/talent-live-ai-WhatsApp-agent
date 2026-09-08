@@ -469,7 +469,7 @@ def has_processed_message(
 # ============================================================================
 
 def get_passed_candidates() -> list[Dict[str, Any]]:
-    """Return candidates in the strong (80+) screening band."""
+    """Return candidates in the strong (85+) screening band."""
 
     candidates_response = (
         supabase
@@ -483,7 +483,7 @@ def get_passed_candidates() -> list[Dict[str, Any]]:
         supabase
         .table("interview_scores")
         .select("*")
-        .gte("total_score", 80)
+        .gte("total_score", 85)
         .order("total_score", desc=True)
         .execute()
     )

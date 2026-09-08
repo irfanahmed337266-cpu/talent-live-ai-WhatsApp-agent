@@ -151,18 +151,18 @@ def _already_completed_message(language: Optional[str]) -> str:
 
     if language == "roman_urdu":
         return (
-            "Aap ka Talent Live screening pehle hi complete ho chuka hai. "
+            "Aap ka Talent Hunt screening pehle hi complete ho chuka hai. "
             "Shukriya! Agar fit bana to hum khud rabta karenge."
         )
 
     if language == "urdu":
         return (
-            "آپ کی Talent Live screening پہلے ہی مکمل ہو چکی ہے۔ شکریہ! "
+            "آپ کی Talent Hunt screening پہلے ہی مکمل ہو چکی ہے۔ شکریہ! "
             "اگر fit بنا تو ہم خود رابطہ کریں گے۔"
         )
 
     return (
-        "Your Talent Live screening is already complete. Thanks again! "
+        "Your Talent Hunt screening is already complete. Thanks again! "
         "We'll reach out if there's a fit."
     )
 

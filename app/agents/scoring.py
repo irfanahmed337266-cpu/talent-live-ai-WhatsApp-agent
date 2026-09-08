@@ -678,7 +678,7 @@ def get_score_band(
 ) -> str:
     """Convert final score into a Talent Live score band."""
 
-    if score >= 80:
+    if score >= 85:
         return "strong"
 
     if score >= 50:
@@ -805,7 +805,7 @@ def calculate_score(
     )
 
     score_note = (
-        f"Talent Live assessment score: "
+        f"Talent Hunt assessment score: "
         f"{total_score}/100 ({score_band})."
     )
 

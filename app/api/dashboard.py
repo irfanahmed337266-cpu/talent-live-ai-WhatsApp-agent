@@ -143,7 +143,7 @@ def dashboard(
     )
 
     return (
-        "<!doctype html><html><head><title>Talent Live</title>"
+        "<!doctype html><html><head><title>Talent Hunt</title>"
         f"{_STYLE}</head>"
         "<body>"
         "<div class=\"page\">"

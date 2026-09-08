@@ -5,7 +5,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.webchat import router as webchat_router
 
 app = FastAPI(
-    title="Talent Live AI Telegram Talent Agent",
+    title="Talent Hunt AI Telegram Talent Agent",
     version="1.0.0",
     description="AI-powered Telegram talent screening agent",
 )

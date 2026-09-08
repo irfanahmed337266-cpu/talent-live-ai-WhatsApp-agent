@@ -3914,22 +3914,22 @@ def _closing_addendum(
 
         if language == "roman_urdu":
             return (
-                "\n\nAap ka profile humein acha laga — please humein "
-                f"WhatsApp par {PASSED_CANDIDATE_WHATSAPP} par contact "
-                "karein taake hum aage barh sakein."
+                "\n\nAap ka profile acha laga. "
+                f"Humein WhatsApp par {PASSED_CANDIDATE_WHATSAPP} par "
+                "message karein. Chaliye aage barhte hain."
             )
 
         if language == "urdu":
             return (
-                "\n\nآپ کا profile ہمیں اچھا لگا — براہ کرم ہم سے "
-                f"WhatsApp پر {PASSED_CANDIDATE_WHATSAPP} پر رابطہ کریں "
-                "تاکہ ہم آگے بڑھ سکیں۔"
+                "\n\nآپ کا profile اچھا لگا۔ "
+                f"ہمیں WhatsApp پر {PASSED_CANDIDATE_WHATSAPP} پر message "
+                "کریں۔ چلیے آگے بڑھتے ہیں۔"
             )
 
         return (
-            "\n\nYour profile stood out to us — please reach out to us "
-            f"on WhatsApp at {PASSED_CANDIDATE_WHATSAPP} so we can move "
-            "forward."
+            "\n\nYour profile stood out. "
+            f"Message us on WhatsApp at {PASSED_CANDIDATE_WHATSAPP}. "
+            "Let's move forward."
         )
 
     contact_line = ""
@@ -3937,36 +3937,26 @@ def _closing_addendum(
     if OWNER_CONTACT_PHONE:
 
         if language == "roman_urdu":
-            contact_line = (
-                f" Aap humein {OWNER_CONTACT_PHONE} par bhi contact "
-                "kar sakte hain."
-            )
+            contact_line = f" Aap {OWNER_CONTACT_PHONE} par bhi contact kar sakte hain."
 
         elif language == "urdu":
-            contact_line = (
-                f" آپ ہم سے {OWNER_CONTACT_PHONE} پر بھی رابطہ کر "
-                "سکتے ہیں۔"
-            )
+            contact_line = f" آپ {OWNER_CONTACT_PHONE} پر بھی رابطہ کر سکتے ہیں۔"
 
         else:
-            contact_line = (
-                f" You can also reach us at {OWNER_CONTACT_PHONE}."
-            )
+            contact_line = f" You can also reach us at {OWNER_CONTACT_PHONE}."
 
     if language == "roman_urdu":
         return (
-            "\n\nAgar humein laga ke aap fit hain, to hum aap se "
-            "rabta karenge!" + contact_line
+            "\n\nAgar fit laga to hum rabta karenge." + contact_line
         )
 
     if language == "urdu":
         return (
-            "\n\nاگر ہمیں لگا کہ آپ فٹ ہیں، تو ہم آپ سے رابطہ "
-            "کریں گے!" + contact_line
+            "\n\nاگر fit لگا تو ہم رابطہ کریں گے۔" + contact_line
         )
 
     return (
-        "\n\nIf we think you're a fit, we'll contact you!" + contact_line
+        "\n\nIf it's a fit, we'll be in touch." + contact_line
     )
 
 
@@ -4004,79 +3994,46 @@ def model_explanation_stage_node(
     if language == "roman_urdu":
 
         explanation = (
-            "Aap ka interview complete ho gaya hai. "
-            "Ab main aap ko batata hoon ke Talent Live ka model "
-            "kis tarah kaam karta hai.\n\n"
-            "Main aise logon ka network build kar raha hoon "
-            "jinhein unki skills ke mutabiq real work diya ja sake. "
-            "Yeh Shopify, automation, e-commerce, sales, marketing "
-            "ya kisi aur relevant area ka kaam ho sakta hai.\n\n"
-            "Jab aapki skills ke mutabiq koi suitable kaam aata hai, "
-            "main woh opportunity aap tak pohanchata hoon. "
-            "Aap work complete karte hain, main client side handle karta hoon, "
-            "aur aap ko completed work ka payment milta hai.\n\n"
-            "Yeh Connect se bhi connected hai — Connect ek AI-driven agency "
-            "hai jo Shopify beauty brands ke saath kaam karti hai. "
-            "Is ke ilawa bhi doosre types ka work ho sakta hai, "
-            "jo aapki skills ke mutabiq fit ho.\n\n"
-            "Abhi maqsad sirf aap ko properly samajhna hai. "
-            "Yeh process ka pehla step hai.\n\n"
-            "Ab aage yeh hoga: main hamari poori conversation ka review "
-            "karunga taake dekh sakoon ke aapka fit us kaam ke sath kaisa "
-            "hai jo mere paas hai. Agar fit hota hai, to main aap ko "
-            "yahin Telegram par directly message karunga. Agar foran "
-            "reply na aaye, iska matlab yeh nahi ke na hai — bas timing "
-            "sahi nahi hai abhi."
+            "Shukriya, sab kuch batane ke liye.\n\n"
+            "Yeh is bare mein hai. Hum ek chhoti team hain. "
+            "Hum milkar projects par kaam karte hain. "
+            "Hum milkar clients hasil karte hain. "
+            "Har koi kaam karte karte nayi skills seekhta hai.\n\n"
+            "Agar fit hota hai, to aap team mein shamil hote hain. "
+            "Aap ko real project experience milta hai. "
+            "Aap ko apne kaam ka payment milta hai. "
+            "Aap team ke sath aage barhte hain.\n\n"
+            "Main abhi hamari conversation dekh raha hoon. "
+            "Agar fit laga to main aapko yahin directly message karunga."
         )
 
     elif language == "urdu":
 
         explanation = (
-            "آپ کا انٹرویو مکمل ہو گیا ہے۔ "
-            "اب میں آپ کو بتاتا ہوں کہ Talent Live کا model "
-            "کس طرح کام کرتا ہے۔\n\n"
-            "میں ایسے لوگوں کا network build کر رہا ہوں "
-            "جنہیں ان کی skills کے مطابق real work دیا جا سکے۔ "
-            "یہ Shopify، automation، e-commerce، sales، marketing "
-            "یا کسی اور relevant area کا کام ہو سکتا ہے۔\n\n"
-            "جب آپ کی skills کے مطابق کوئی suitable کام آتا ہے، "
-            "میں وہ opportunity آپ تک پہنچاتا ہوں۔ "
-            "آپ work complete کرتے ہیں، میں client side handle کرتا ہوں، "
-            "اور آپ کو completed work کی payment ملتی ہے۔\n\n"
-            "یہ Connect سے بھی connected ہے — Connect ایک AI-driven agency "
-            "ہے جو Shopify beauty brands کے ساتھ کام کرتی ہے۔ "
-            "اس کے علاوہ بھی دوسرے types کا work ہو سکتا ہے، "
-            "جو آپ کی skills کے مطابق fit ہو۔\n\n"
-            "ابھی مقصد صرف آپ کو properly سمجھنا ہے۔ "
-            "یہ process کا پہلا step ہے۔\n\n"
-            "اب یہ ہوگا: میں ہماری پوری گفتگو کا جائزہ لوں گا تاکہ دیکھ "
-            "سکوں کہ آپ کا fit اس کام کے ساتھ کیسا ہے جو میرے پاس ہے۔ "
-            "اگر fit ہوتا ہے، تو میں آپ کو یہیں Telegram پر براہ راست "
-            "message کروں گا۔ اگر فوراً reply نہ آئے، تو اس کا مطلب یہ "
-            "نہیں کہ نہیں ہے — بس ابھی timing صحیح نہیں ہے۔"
+            "شکریہ، سب کچھ بتانے کے لیے۔\n\n"
+            "یہ اس بارے میں ہے۔ ہم ایک چھوٹی team ہیں۔ "
+            "ہم مل کر projects پر کام کرتے ہیں۔ "
+            "ہم مل کر clients حاصل کرتے ہیں۔ "
+            "ہر کوئی کام کرتے کرتے نئی skills سیکھتا ہے۔\n\n"
+            "اگر fit ہوتا ہے، تو آپ team میں شامل ہوتے ہیں۔ "
+            "آپ کو real project experience ملتا ہے۔ "
+            "آپ کو اپنے کام کی payment ملتی ہے۔ "
+            "آپ team کے ساتھ آگے بڑھتے ہیں۔\n\n"
+            "میں ابھی ہماری گفتگو دیکھ رہا ہوں۔ "
+            "اگر fit لگا تو میں آپ کو یہیں براہ راست message کروں گا۔"
         )
 
     else:
 
         explanation = (
-            "Thanks for sharing all that. Here's what this is about.\n\n"
-            "I'm building a network of people I can send real work to — "
-            "could be Shopify, automation, e-commerce, sales, marketing, "
-            "depending on what fits you.\n\n"
-            "When something comes up that matches your skills, "
-            "I send it to you. You complete the work, I handle the "
-            "client side, and you get paid for the work.\n\n"
-            "This connects to Connect — an AI-driven agency I run "
-            "working with Shopify beauty brands. There may be other "
-            "kinds of work too, depending on what fits.\n\n"
-            "Right now I want to get to know people properly before "
-            "assigning anything, so this is just step one.\n\n"
-            "Here's what happens next: I'll go through everything from "
-            "our conversation to see if there's a good match with the "
-            "work I have. If there is, I'll message you directly here "
-            "on Telegram to follow up. If you don't hear back right "
-            "away, that just means the timing isn't right yet — it's "
-            "not a final no."
+            "Thanks for sharing all that.\n\n"
+            "Here's what this is about. We're a small team. "
+            "We work on projects together. We win clients together. "
+            "Everyone learns new skills along the way.\n\n"
+            "If it's a fit, you join in. You get real project experience. "
+            "You get paid for your work. You grow with the team.\n\n"
+            "I'm reviewing our conversation now. "
+            "I'll message you here directly if there's a fit."
         )
 
     # --------------------------------------------------------------------
@@ -4466,7 +4423,7 @@ def scoring_stage_node(
             "status": "completed",
             "completed_at": completion_time.isoformat(),
             "completion_reason": (
-                "Talent Live interview completed"
+                "Talent Hunt interview completed"
             ),
         },
     )
@@ -4667,23 +4624,21 @@ def response_node(
 
                 response = (
                     "Aap ka interview complete ho gaya hai. "
-                    "Ab main aap ko Talent Live ka model "
-                    "samjhata hoon."
+                    "Ab main aage ka process batata hoon."
                 )
 
             elif language == "urdu":
 
                 response = (
                     "آپ کا انٹرویو مکمل ہو گیا ہے۔ "
-                    "اب میں آپ کو Talent Live کا model "
-                    "سمجھاتا ہوں۔"
-)
+                    "اب میں آگے کا process بتاتا ہوں۔"
+                )
 
             else:
 
                 response = (
                     "Your interview is complete. "
-                    "Let me explain how the Talent Live model works."
+                    "Here's what happens next."
                 )
 
         state["model_explanation"] = response

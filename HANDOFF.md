@@ -1,9 +1,18 @@
-# Talent Live AI Telegram Agent — Handoff / Architecture
+# Talent Hunt AI Telegram Agent — Handoff / Architecture
 
-An AI-driven candidate screening bot. A candidate talks to a Telegram bot,
-goes through a fixed interview flow, gets a deterministic 0–100 fit score,
-and — if they score high enough — shows up on a small owner-only dashboard
-with their contact info.
+An AI-driven candidate screening bot. A candidate talks to a Telegram bot
+(or the web chat fallback, §2.1), goes through a fixed interview flow,
+gets a deterministic 0–100 fit score, and — if they score high enough —
+shows up on a small owner-only dashboard with their contact info.
+
+**Naming note**: the product is branded "Talent Hunt" in every
+candidate/owner-facing surface (page titles, the FastAPI app title, the
+"already complete" message). Internal code still uses "Talent Live" in
+many docstrings/comments/module names (`app/agents/state.py`'s
+`AgentState`, etc.) — that's leftover from an earlier name and wasn't
+renamed wholesale, since it's not visible to anyone outside the codebase.
+If you rename it further, keep that distinction in mind: user-facing
+strings vs. internal identifiers are two different jobs.
 
 This document explains how the pieces fit together, why they're built the
 way they are, and what to watch out for. It assumes no prior context.
@@ -192,6 +201,14 @@ Stage 4. If you need to change the closing text, **edit
 `model_explanation_stage_node`**, not the Stage 5 branch, or your change
 will silently never be sent.
 
+**Message style, deliberately**: short sentences, no em dashes, no
+"not X, it's Y" contrast framing. Content pitches joining a small team
+that works on projects together, wins clients together, and learns
+skills along the way — kept consistent across all three languages.
+Match this style if you edit it again; it replaced an earlier, more
+verbose pitch (a specific "Connect"/Shopify-beauty-brands framing) that
+was rewritten on request.
+
 **`PASSED_CANDIDATE_WHATSAPP`** (env var): when set, and only for
 candidates who scored `"strong"` (`score_band`, see `scoring.py`), the
 closing line invites them to reach out on that WhatsApp number directly —
@@ -296,9 +313,12 @@ Deductions (subtracted from the base):
 | Asked about salary early | −10 |
 | Repeated disengagement | −10 |
 
-**Score bands** (`get_score_band()`): `strong` ≥ 80, `borderline` 50–79,
-`weak` < 50. **"Passed" = `strong`**, i.e. final score ≥ 80 — that's the
-exact filter `get_passed_candidates()` uses for the dashboard.
+**Score bands** (`get_score_band()`): `strong` ≥ 85, `borderline` 50–84,
+`weak` < 50. **"Passed" = `strong`**, i.e. final score ≥ 85 — that's the
+exact filter `get_passed_candidates()` uses for the dashboard. (Raised
+from 80 to 85 on request; both `scoring.py` and `supabase.py`'s query
+were updated together so the band and the dashboard filter can't drift
+apart.)
 
 ### 5.1 Critical review — objectivity issues
 
