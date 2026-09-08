@@ -15,11 +15,12 @@ the existing materials-stage text detection already handles that.
 
 from __future__ import annotations
 
+import json
 import re
 import time
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.agents.graph import run_agent
@@ -34,24 +35,81 @@ router = APIRouter(prefix="/webchat")
 
 MAX_MESSAGE_LENGTH = 4096
 
+# Mirrors app/api/telegram.py's MAX_WEBHOOK_BYTES check - reject an
+# oversized body before it's fully read into memory, not after.
+MAX_BODY_BYTES = 32 * 1024
+
 # Browser-generated crypto.randomUUID() shape - reject anything else so a
 # malformed/garbage session id can't be used to probe arbitrary keys.
 SESSION_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 
-# Same flood throttle as app/api/telegram.py's _is_rate_limited - in
-# memory, per-process, a cheap deterrent against scripted flooding, not
-# a security boundary.
+# --------------------------------------------------------------------------
+# RATE LIMITING
+#
+# Two layers, both in-memory/per-process (cheap deterrents, not a security
+# boundary - see app/api/telegram.py's identical caveat):
+#
+# - Per-session: same as Telegram's per-chat throttle.
+# - Per-IP: Telegram's per-chat throttle is enough on its own there because
+#   a chat_id is a real Telegram account, not something an attacker can
+#   mint on demand. Here, session_id is 100% client-generated with no
+#   authentication - anyone can bypass a per-session-only limit just by
+#   generating a new UUID per request. The per-IP layer closes that.
+#   X-Forwarded-For is trusted here because this only runs behind Render's
+#   proxy, which sets it; it would not be safe to trust on a deployment
+#   directly exposed to the internet without a proxy in front of it.
+# --------------------------------------------------------------------------
+
 MIN_SECONDS_BETWEEN_MESSAGES = 1.5
+MIN_SECONDS_BETWEEN_IP_REQUESTS = 0.5
+
 _last_message_at: Dict[str, float] = {}
+_last_request_at_by_ip: Dict[str, float] = {}
+
+# Bound the rate-limit dicts' memory growth - an attacker rotating
+# session ids/IPs forever would otherwise grow these unboundedly. Not a
+# precise LRU, just a cheap periodic purge of stale entries.
+_MAX_TRACKED_KEYS = 5000
+_STALE_AFTER_SECONDS = 300
+
+
+def _purge_stale(bucket: Dict[str, float]) -> None:
+    if len(bucket) <= _MAX_TRACKED_KEYS:
+        return
+    now = time.monotonic()
+    stale = [k for k, t in bucket.items() if now - t > _STALE_AFTER_SECONDS]
+    for k in stale:
+        bucket.pop(k, None)
 
 
 def _is_rate_limited(session_key: str) -> bool:
+    _purge_stale(_last_message_at)
     now = time.monotonic()
     last = _last_message_at.get(session_key)
     _last_message_at[session_key] = now
     return last is not None and (now - last) < MIN_SECONDS_BETWEEN_MESSAGES
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _is_ip_rate_limited(request: Request, bucket_name: str) -> bool:
+    # bucket_name keeps /message and /history on separate cooldowns, so a
+    # normal page load (history fetch immediately followed by the first
+    # /start message) can't trip a shared timer meant for flooding, not
+    # for one legitimate user's own sequential requests.
+    _purge_stale(_last_request_at_by_ip)
+    key = f"{bucket_name}:{_client_ip(request)}"
+    now = time.monotonic()
+    last = _last_request_at_by_ip.get(key)
+    _last_request_at_by_ip[key] = now
+    return last is not None and (now - last) < MIN_SECONDS_BETWEEN_IP_REQUESTS
 
 
 def _already_completed_message(language: Optional[str]) -> str:
@@ -77,9 +135,34 @@ def _already_completed_message(language: Optional[str]) -> str:
 
 
 @router.post("/message")
-def send_message(
-    payload: Dict[str, Any] = Body(...),
-) -> JSONResponse:
+async def send_message(request: Request) -> JSONResponse:
+
+    if _is_ip_rate_limited(request, "message"):
+        return JSONResponse({"error": "rate limited"}, status_code=429)
+
+    # Check the declared size before reading the body into memory at
+    # all - a client can lie about Content-Length, so this is paired
+    # with the actual-length check right after, not a substitute for it.
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_BODY_BYTES:
+                return JSONResponse({"error": "payload too large"}, status_code=413)
+        except ValueError:
+            return JSONResponse({"error": "invalid content-length"}, status_code=400)
+
+    raw_body = await request.body()
+
+    if len(raw_body) > MAX_BODY_BYTES:
+        return JSONResponse({"error": "payload too large"}, status_code=413)
+
+    try:
+        payload = json.loads(raw_body or b"{}")
+    except ValueError:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "invalid payload"}, status_code=400)
 
     session_id = str(payload.get("session_id") or "").strip()
     user_text = payload.get("message")
@@ -154,13 +237,16 @@ def send_message(
 
 
 @router.get("/history")
-def get_history(session_id: str = "") -> JSONResponse:
+def get_history(request: Request, session_id: str = "") -> JSONResponse:
     """
     Returns any existing conversation for this session without running
     the agent - used on page load so a reload/return visit doesn't
     re-send "/start" into a mid-interview session (which would get
     recorded as the answer to whatever question was pending).
     """
+
+    if _is_ip_rate_limited(request, "history"):
+        return JSONResponse({"history": []}, status_code=429)
 
     session_id = (session_id or "").strip()
 

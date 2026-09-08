@@ -115,6 +115,42 @@ business verification or approval queue to go live.
   blocks back-to-back requests, then the test candidate/session rows
   were deleted afterward so they wouldn't pollute the owner dashboard.
 
+**Security review** (requested explicitly, went through it systematically
+rather than just eyeballing it):
+- **SQL injection**: not a realistic vector — every DB call goes through
+  `supabase-py`'s parameterized query builder (`.eq()`, `.upsert()`),
+  never raw string-built SQL, same as the rest of the app.
+- **XSS**: the frontend renders every message via `el.textContent`,
+  never `innerHTML`, so a candidate typing HTML/script tags can't
+  execute anything in another viewer's browser.
+- **Request-size DoS**: fixed — added a `Content-Length` pre-check plus
+  an actual-body-size check (mirrors `app/api/telegram.py`'s
+  `MAX_WEBHOOK_BYTES` pattern) before the body is parsed at all.
+- **Rate-limit bypass**: fixed — the original per-session throttle alone
+  was trivially bypassable, since `session_id` is 100% client-generated
+  with zero authentication (unlike a Telegram `chat_id`, which is tied
+  to a real account). Added a second, per-IP layer (via
+  `X-Forwarded-For`, trusted here specifically because this only runs
+  behind Render's proxy) on **both** `/message` and `/history` — they
+  use separate rate-limit buckets so one legitimate page load (a
+  history fetch immediately followed by the first `/start`) can't trip
+  a timer meant for catching floods.
+- **Unbounded memory growth**: fixed — both in-memory rate-limit dicts
+  get a periodic stale-entry purge once they exceed 5,000 tracked keys,
+  so an attacker rotating session ids/IPs forever can't grow them
+  indefinitely.
+- **Session identity model, disclosed rather than hidden**: `session_id`
+  functions as a bearer credential — anyone who has it can read/continue
+  that conversation via `/webchat/history`, no separate password. This
+  is deliberate and considered acceptable: it's a `crypto.randomUUID()`
+  (122 bits of randomness), so brute-forcing one is not realistic, and
+  it's the same trust model as any unguessable share-link. Don't weaken
+  `SESSION_ID_PATTERN`'s strict UUID-shape check, since that's also what
+  keeps a malformed value from reaching the DB layer at all.
+- Re-verified end-to-end after all of the above: oversized declared
+  `Content-Length` → 413, an actually-oversized body → 413, malformed
+  JSON → 400, and a normal small request still completes correctly.
+
 ---
 
 ## 3. The conversation flow (state machine)

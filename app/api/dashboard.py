@@ -1,4 +1,4 @@
-"""Small owner dashboard for candidates who passed screening."""
+"""Owner dashboard for all candidates (passed or not)."""
 
 from __future__ import annotations
 
@@ -89,6 +89,8 @@ def dashboard(
     materials_by_candidate = get_materials_for_candidates(candidate_ids)
     sessions_by_candidate = get_agent_sessions_for_candidates(candidate_ids)
 
+    stats = _compute_stats(candidates)
+
     rows = []
 
     for candidate in candidates:
@@ -106,17 +108,23 @@ def dashboard(
         availability_cell = _render_availability_cell(session_state)
         profile_cell = _render_profile_details(session_state)
         conversation_cell = _render_conversation_cell(session_state)
-        status_cell = _render_status_cell(candidate)
 
-        score_value = candidate.get("total_score")
-        band_value = candidate.get("score_band")
+        name = str(candidate.get("name") or "Unnamed")
+        search_key = html.escape(
+            " ".join(
+                filter(None, [
+                    name.lower(),
+                    str(username or "").lower(),
+                    str(candidate.get("score_band") or "").lower(),
+                ])
+            )
+        )
 
         rows.append(
-            "<tr>"
-            f"<td>{html.escape(str(candidate.get('name') or 'Unnamed'))}</td>"
-            f"<td>{status_cell}</td>"
-            f"<td>{html.escape(str(score_value)) if score_value is not None else '—'}</td>"
-            f"<td>{html.escape(str(band_value)) if band_value else '—'}</td>"
+            f'<tr data-search="{search_key}">'
+            f"<td class=\"name-cell\">{html.escape(name)}</td>"
+            f"<td>{_status_badge(candidate)}</td>"
+            f"<td>{_score_badge(candidate)}</td>"
             f"<td>{availability_cell}</td>"
             f"<td>{resume_cell}</td>"
             f"<td>{contact}</td>"
@@ -125,29 +133,89 @@ def dashboard(
             "</tr>"
         )
 
+    table_body = (
+        "".join(rows)
+        if rows
+        else '<tr><td colspan="8" class="empty-state">No candidates yet.</td></tr>'
+    )
+
     return (
         "<!doctype html><html><head><title>Talent Live</title>"
-        "<style>body{font-family:system-ui;margin:40px}table{border-collapse:collapse;width:100%}"
-        "th,td{padding:12px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}"
-        ".not-submitted{color:#888;font-style:italic}"
-        ".field-label{color:#666;font-size:0.85em}"
-        "details summary{cursor:pointer;color:#06c}"
-        "dl{margin:6px 0}dt{font-weight:600;margin-top:6px}dd{margin-left:0}"
-        ".chat{max-height:320px;overflow-y:auto;min-width:280px;max-width:420px}"
-        ".chat p{margin:4px 0;padding:6px 8px;border-radius:6px}"
-        ".chat .user{background:#eef2ff}"
-        ".chat .assistant{background:#f4f4f4}"
-        ".chat .role{font-weight:600;font-size:0.8em;display:block;color:#666}"
-        "</style></head>"
-        "<body><h1>All candidates</h1><table><tr><th>Name</th><th>Status</th>"
-        "<th>Score</th><th>Band</th><th>Availability</th><th>Resume/Materials</th>"
-        "<th>Telegram</th><th>Full Profile</th><th>Conversation</th></tr>"
-        + "".join(rows)
-        + "</table></body></html>"
+        f"{_STYLE}</head>"
+        "<body>"
+        "<div class=\"page\">"
+        "<header class=\"page-header\">"
+        "<h1>Candidates</h1>"
+        "<input id=\"search\" type=\"text\" placeholder=\"Search by name, Telegram, or band...\" "
+        "oninput=\"filterRows(this.value)\">"
+        "</header>"
+        + _render_stats_bar(stats)
+        + "<div class=\"table-card\">"
+        "<div class=\"table-scroll\">"
+        "<table><thead><tr>"
+        "<th>Name</th><th>Status</th><th>Score</th><th>Availability</th>"
+        "<th>Resume/Materials</th><th>Telegram</th><th>Full Profile</th>"
+        "<th>Conversation</th>"
+        "</tr></thead><tbody>"
+        + table_body
+        + "</tbody></table>"
+        "</div></div></div>"
+        "<script>"
+        "function filterRows(query) {"
+        "  query = query.trim().toLowerCase();"
+        "  document.querySelectorAll('tbody tr[data-search]').forEach(function (row) {"
+        "    var match = row.getAttribute('data-search').indexOf(query) !== -1;"
+        "    row.style.display = match ? '' : 'none';"
+        "  });"
+        "}"
+        "</script>"
+        "</body></html>"
     )
 
 
-def _render_status_cell(candidate: Dict[str, Any]) -> str:
+def _compute_stats(candidates: List[Dict[str, Any]]) -> Dict[str, int]:
+
+    stats = {
+        "total": len(candidates),
+        "strong": 0,
+        "borderline": 0,
+        "weak": 0,
+        "in_progress": 0,
+    }
+
+    for candidate in candidates:
+
+        band = candidate.get("score_band")
+
+        if band in stats:
+            stats[band] += 1
+
+        if candidate.get("status") != "completed":
+            stats["in_progress"] += 1
+
+    return stats
+
+
+def _render_stats_bar(stats: Dict[str, int]) -> str:
+
+    cards = [
+        ("Total", stats["total"], "stat-total"),
+        ("Strong", stats["strong"], "stat-strong"),
+        ("Borderline", stats["borderline"], "stat-borderline"),
+        ("Weak", stats["weak"], "stat-weak"),
+        ("In progress", stats["in_progress"], "stat-progress"),
+    ]
+
+    items = "".join(
+        f'<div class="stat {css}"><div class="stat-value">{value}</div>'
+        f'<div class="stat-label">{html.escape(label)}</div></div>'
+        for label, value, css in cards
+    )
+
+    return f'<div class="stats-bar">{items}</div>'
+
+
+def _status_badge(candidate: Dict[str, Any]) -> str:
 
     status = candidate.get("status")
     stage = candidate.get("current_stage")
@@ -155,9 +223,32 @@ def _render_status_cell(candidate: Dict[str, Any]) -> str:
     stage_label = STAGE_LABELS.get(stage, f"Stage {stage}" if stage is not None else "Unknown")
 
     if status == "completed":
-        return html.escape(stage_label)
+        return f'<span class="badge badge-completed">{html.escape(stage_label)}</span>'
 
-    return html.escape(f"In progress ({stage_label})")
+    return f'<span class="badge badge-progress">In progress · {html.escape(stage_label)}</span>'
+
+
+def _score_badge(candidate: Dict[str, Any]) -> str:
+
+    score_value = candidate.get("total_score")
+    band_value = candidate.get("score_band")
+
+    band_css = {
+        "strong": "badge-strong",
+        "borderline": "badge-borderline",
+        "weak": "badge-weak",
+    }.get(band_value, "badge-none")
+
+    if score_value is None:
+        return f'<span class="badge {band_css}">No score yet</span>'
+
+    band_label = html.escape(str(band_value)) if band_value else ""
+
+    return (
+        f'<span class="badge {band_css}">{html.escape(str(score_value))}/100'
+        + (f" · {band_label}" if band_label else "")
+        + "</span>"
+    )
 
 
 def _render_availability_cell(session_state: Dict[str, Any]) -> str:
@@ -308,3 +399,92 @@ def _render_materials_cell(materials: List[Dict[str, Any]]) -> str:
             links.append(f"{label} (unavailable)")
 
     return " · ".join(links)
+
+
+_STYLE = """<style>
+:root {
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.page { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+}
+.page-header h1 { font-size: 1.4rem; margin: 0; }
+#search {
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 14px;
+  font: inherit; width: 320px; max-width: 100%; background: var(--card);
+}
+#search:focus { outline: 2px solid #6366f1; outline-offset: 1px; }
+
+.stats-bar {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+  margin-bottom: 20px;
+}
+.stat {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px; border-left: 4px solid var(--muted);
+}
+.stat-value { font-size: 1.5rem; font-weight: 700; }
+.stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.stat-total { border-left-color: #6366f1; }
+.stat-strong { border-left-color: #16a34a; }
+.stat-borderline { border-left-color: #d97706; }
+.stat-weak { border-left-color: #dc2626; }
+.stat-progress { border-left-color: #6b7280; }
+
+.table-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden;
+}
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+thead th {
+  position: sticky; top: 0; background: #fafafa; text-align: left;
+  font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--muted); padding: 12px 14px; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody td {
+  padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+tbody tr:nth-child(even) { background: #fbfbfc; }
+tbody tr:hover { background: #f0f1ff; }
+.name-cell { font-weight: 600; white-space: nowrap; }
+.empty-state { text-align: center; color: var(--muted); padding: 40px !important; }
+
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+}
+.badge-strong { background: #dcfce7; color: #166534; }
+.badge-borderline { background: #fef3c7; color: #92400e; }
+.badge-weak { background: #fee2e2; color: #991b1b; }
+.badge-none { background: #f3f4f6; color: #6b7280; }
+.badge-completed { background: #dbeafe; color: #1e40af; }
+.badge-progress { background: #f3f4f6; color: #4b5563; }
+
+.not-submitted { color: #9ca3af; font-style: italic; }
+.field-label { color: var(--muted); font-size: 0.85em; }
+details summary { cursor: pointer; color: #4f46e5; font-size: 0.9em; }
+dl { margin: 6px 0; }
+dt { font-weight: 600; margin-top: 6px; }
+dd { margin-left: 0; }
+.chat {
+  max-height: 320px; overflow-y: auto; min-width: 280px; max-width: 420px;
+  margin-top: 6px;
+}
+.chat p { margin: 4px 0; padding: 6px 8px; border-radius: 6px; }
+.chat .user { background: #eef2ff; }
+.chat .assistant { background: #f4f4f4; }
+.chat .role { font-weight: 600; font-size: 0.8em; display: block; color: var(--muted); }
+</style>"""
