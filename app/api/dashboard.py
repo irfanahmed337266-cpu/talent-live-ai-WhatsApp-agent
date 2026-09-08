@@ -120,8 +120,11 @@ def dashboard(
             )
         )
 
+        band_key = html.escape(str(candidate.get("score_band") or "none"))
+        status_key = "completed" if candidate.get("status") == "completed" else "in_progress"
+
         rows.append(
-            f'<tr data-search="{search_key}">'
+            f'<tr data-search="{search_key}" data-band="{band_key}" data-status="{status_key}">'
             f"<td class=\"name-cell\">{html.escape(name)}</td>"
             f"<td>{_status_badge(candidate)}</td>"
             f"<td>{_score_badge(candidate)}</td>"
@@ -146,8 +149,22 @@ def dashboard(
         "<div class=\"page\">"
         "<header class=\"page-header\">"
         "<h1>Candidates</h1>"
+        "<div class=\"filters\">"
         "<input id=\"search\" type=\"text\" placeholder=\"Search by name, Telegram, or band...\" "
-        "oninput=\"filterRows(this.value)\">"
+        "oninput=\"applyFilters()\">"
+        "<select id=\"bandFilter\" onchange=\"applyFilters()\">"
+        "<option value=\"\">All bands</option>"
+        "<option value=\"strong\">Strong</option>"
+        "<option value=\"borderline\">Borderline</option>"
+        "<option value=\"weak\">Weak</option>"
+        "<option value=\"none\">No score yet</option>"
+        "</select>"
+        "<select id=\"statusFilter\" onchange=\"applyFilters()\">"
+        "<option value=\"\">All statuses</option>"
+        "<option value=\"completed\">Completed</option>"
+        "<option value=\"in_progress\">In progress</option>"
+        "</select>"
+        "</div>"
         "</header>"
         + _render_stats_bar(stats)
         + "<div class=\"table-card\">"
@@ -161,11 +178,15 @@ def dashboard(
         + "</tbody></table>"
         "</div></div></div>"
         "<script>"
-        "function filterRows(query) {"
-        "  query = query.trim().toLowerCase();"
+        "function applyFilters() {"
+        "  var query = document.getElementById('search').value.trim().toLowerCase();"
+        "  var band = document.getElementById('bandFilter').value;"
+        "  var status = document.getElementById('statusFilter').value;"
         "  document.querySelectorAll('tbody tr[data-search]').forEach(function (row) {"
-        "    var match = row.getAttribute('data-search').indexOf(query) !== -1;"
-        "    row.style.display = match ? '' : 'none';"
+        "    var matchesQuery = row.getAttribute('data-search').indexOf(query) !== -1;"
+        "    var matchesBand = !band || row.getAttribute('data-band') === band;"
+        "    var matchesStatus = !status || row.getAttribute('data-status') === status;"
+        "    row.style.display = (matchesQuery && matchesBand && matchesStatus) ? '' : 'none';"
         "  });"
         "}"
         "</script>"
@@ -253,9 +274,8 @@ def _score_badge(candidate: Dict[str, Any]) -> str:
 
 def _render_availability_cell(session_state: Dict[str, Any]) -> str:
     """
-    Surface the availability/work-stability answers directly in the main
-    table (not tucked behind the details toggle), since that's the field
-    most likely to affect whether/when someone actually gets contacted.
+    The availability/work-stability answers, collapsed behind a
+    <details> toggle like Full Profile and Conversation.
     """
 
     interview = session_state.get("interview", {}) or {}
@@ -272,7 +292,11 @@ def _render_availability_cell(session_state: Dict[str, Any]) -> str:
             f'{html.escape(str(answer))}</div>'
         )
 
-    return "".join(parts)
+    return (
+        "<details><summary>View availability</summary>"
+        + "".join(parts)
+        + "</details>"
+    )
 
 
 def _render_profile_details(session_state: Dict[str, Any]) -> str:
@@ -420,11 +444,15 @@ body {
   flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
 }
 .page-header h1 { font-size: 1.4rem; margin: 0; }
-#search {
+.filters { display: flex; gap: 10px; flex-wrap: wrap; }
+#search, #bandFilter, #statusFilter {
   border: 1px solid var(--border); border-radius: 8px; padding: 9px 14px;
-  font: inherit; width: 320px; max-width: 100%; background: var(--card);
+  font: inherit; background: var(--card); color: var(--text);
 }
-#search:focus { outline: 2px solid #6366f1; outline-offset: 1px; }
+#search { width: 280px; max-width: 100%; }
+#search:focus, #bandFilter:focus, #statusFilter:focus {
+  outline: 2px solid #6366f1; outline-offset: 1px;
+}
 
 .stats-bar {
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
