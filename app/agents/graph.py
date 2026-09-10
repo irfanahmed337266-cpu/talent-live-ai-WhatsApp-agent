@@ -72,8 +72,13 @@ OWNER_CONTACT_PHONE = os.getenv("OWNER_CONTACT_PHONE", "")
 # WhatsApp number given ONLY to candidates who scored "strong" (see
 # get_score_band in scoring.py) - a concrete next step for a pass,
 # distinct from OWNER_CONTACT_PHONE's generic "we'll reach out" line
-# shown to everyone else.
-PASSED_CANDIDATE_WHATSAPP = os.getenv("PASSED_CANDIDATE_WHATSAPP", "")
+# shown to everyone else. Defaulted to the real number (not blank) so it
+# works on hosts that don't load .env (e.g. Render, which only has env
+# vars set in its dashboard). An env var still overrides it if set.
+PASSED_CANDIDATE_WHATSAPP = os.getenv(
+    "PASSED_CANDIDATE_WHATSAPP",
+    "+639561283146",
+)
 
 
 gemini_client = None
