@@ -39,3 +39,17 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      # Needed by the web chat transport (app/api/webchat.py), which runs
+      # the same interview engine as the bot. Render does NOT read .env
+      # files - these must be set in the dashboard (Environment tab) or
+      # they read blank in production. Without PASSED_CANDIDATE_WHATSAPP,
+      # candidates who score "strong" (>= 85) get the generic closing
+      # message instead of the WhatsApp number to contact.
+      - key: PASSED_CANDIDATE_WHATSAPP
+        sync: false
+      - key: OWNER_CONTACT_PHONE
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: USE_GEMINI_EXTRACTION
+        sync: false
