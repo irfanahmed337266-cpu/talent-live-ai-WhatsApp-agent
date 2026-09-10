@@ -3910,31 +3910,57 @@ def _closing_addendum(
     actually gets a chance to be delivered to the candidate.
     """
 
-    passed = (
-        state.get("score_band") == "strong"
-        and bool(PASSED_CANDIDATE_WHATSAPP)
-    )
+    passed = state.get("score_band") == "strong"
 
     if passed:
 
+        # A "strong" candidate has passed. They always get a pass-toned
+        # message. Prefer the dedicated WhatsApp number; fall back to the
+        # owner contact phone; if neither is configured, still tell them
+        # they stood out rather than dropping to the neutral "if it's a
+        # fit" line, which reads as a soft rejection to someone who passed.
+        pass_number = PASSED_CANDIDATE_WHATSAPP or OWNER_CONTACT_PHONE
+
+        if not PASSED_CANDIDATE_WHATSAPP:
+            print(
+                "[closing_addendum] score_band=strong but "
+                "PASSED_CANDIDATE_WHATSAPP is not set - "
+                f"{'using OWNER_CONTACT_PHONE' if pass_number else 'no contact number available'}"
+            )
+
         if language == "roman_urdu":
+            if pass_number:
+                return (
+                    "\n\nAap ka profile acha laga. "
+                    f"Humein WhatsApp par {pass_number} par "
+                    "message karein. Chaliye aage barhte hain."
+                )
             return (
                 "\n\nAap ka profile acha laga. "
-                f"Humein WhatsApp par {PASSED_CANDIDATE_WHATSAPP} par "
-                "message karein. Chaliye aage barhte hain."
+                "Hum jald aap se rabta karenge. Chaliye aage barhte hain."
             )
 
         if language == "urdu":
+            if pass_number:
+                return (
+                    "\n\nآپ کا profile اچھا لگا۔ "
+                    f"ہمیں WhatsApp پر {pass_number} پر message "
+                    "کریں۔ چلیے آگے بڑھتے ہیں۔"
+                )
             return (
                 "\n\nآپ کا profile اچھا لگا۔ "
-                f"ہمیں WhatsApp پر {PASSED_CANDIDATE_WHATSAPP} پر message "
-                "کریں۔ چلیے آگے بڑھتے ہیں۔"
+                "ہم جلد آپ سے رابطہ کریں گے۔ چلیے آگے بڑھتے ہیں۔"
             )
 
+        if pass_number:
+            return (
+                "\n\nYour profile stood out. "
+                f"Message us on WhatsApp at {pass_number}. "
+                "Let's move forward."
+            )
         return (
             "\n\nYour profile stood out. "
-            f"Message us on WhatsApp at {PASSED_CANDIDATE_WHATSAPP}. "
-            "Let's move forward."
+            "We'll be in touch shortly. Let's move forward."
         )
 
     contact_line = ""

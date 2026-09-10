@@ -209,14 +209,25 @@ Match this style if you edit it again; it replaced an earlier, more
 verbose pitch (a specific "Connect"/Shopify-beauty-brands framing) that
 was rewritten on request.
 
-**`PASSED_CANDIDATE_WHATSAPP`** (env var): when set, and only for
-candidates who scored `"strong"` (`score_band`, see `scoring.py`), the
-closing line invites them to reach out on that WhatsApp number directly —
-a concrete next step for a pass, instead of the generic "we'll contact
-you" everyone else gets. Verified directly (not just read): ran the
-graph through a full mocked interview twice, confirmed the number only
-appears when `score_band == "strong"`, and confirmed `_closing_addendum()`
-returns the generic text for `"borderline"`, `"weak"`, and unset.
+**`PASSED_CANDIDATE_WHATSAPP`** (env var): for candidates who scored
+`"strong"` (`score_band`, see `scoring.py`), the closing line invites
+them to reach out on that WhatsApp number directly — a concrete next
+step for a pass, instead of the generic "we'll contact you" everyone
+else gets. Verified directly (not just read): ran the graph through a
+full mocked interview twice, confirmed the number only appears when
+`score_band == "strong"`, and confirmed `_closing_addendum()` returns
+the generic text for `"borderline"`, `"weak"`, and unset.
+
+`_closing_addendum()` now degrades gracefully for a `"strong"` scorer
+when the number is missing: it uses `OWNER_CONTACT_PHONE` if set,
+otherwise sends a pass-toned "Your profile stood out. We'll be in touch
+shortly." — never the neutral "if it's a fit" line, which reads as a
+soft rejection to someone who actually passed. It also prints a
+`[closing_addendum] score_band=strong but PASSED_CANDIDATE_WHATSAPP is
+not set` log line so a misconfigured deployment is visible in the bot's
+output. If a passed candidate reports not getting the number, check
+that the *running* bot instance (mini PC especially) has both the
+current code and `PASSED_CANDIDATE_WHATSAPP` in its own `.env`.
 
 **⚠️ This was silently broken in production until fixed** (unrelated to
 the logic above): `graph.py` read `PASSED_CANDIDATE_WHATSAPP`,
